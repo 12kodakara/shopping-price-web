@@ -177,16 +177,17 @@ export function ShoppingPage() {
                     <DiffBadge diff={r.targetDiff} />
                     {r.cheapest && r.pastLowest !== null && r.cheapest.unitPrice <= r.pastLowest && <Badge kind="best">過去最安</Badge>}
                   </div>
-                  <div className="card-actions">
+                  <div className="card-actions candidate-actions">
+                    {/* この画面の主な操作は「今回買う」（買い物リストへの追加）。押した後は控えめな表示に変わる */}
                     <button
                       type="button"
-                      className={`button ${isSelected ? 'button-selected' : 'button-outline'}`}
+                      className={`button button-buy ${isSelected ? 'button-added' : 'button-primary'}`}
                       aria-pressed={isSelected}
                       onClick={() => toggleSelected(r.product.id)}
                     >
-                      {isSelected ? '✓ 今回買う' : '今回買う'}
+                      {isSelected ? '✓ 今回買う' : '＋ 今回買う'}
                     </button>
-                    <Link to={`/prices/new?product=${r.product.id}`} className="button button-ghost">価格を登録</Link>
+                    <Link to={`/prices/new?product=${r.product.id}`} className="button button-ghost button-register">価格を登録</Link>
                   </div>
                 </li>
               );

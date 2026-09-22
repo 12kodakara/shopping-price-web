@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { largeData } from '../fixtures/largeData';
+import { choose } from '../fixtures/combobox';
 
 // 第7回: PWA（manifest・アイコン・Service Worker・オフライン起動・更新・画面端の余白）
 // 本番ビルドを vite preview（http://localhost:4173）で配信して確認する。
@@ -20,10 +21,11 @@ function pngSize(buf: Buffer) {
 async function waitForServiceWorker(page: Page) {
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
-    if (!navigator.serviceWorker.controller) {
-      await new Promise<void>((resolve) => navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true }));
-    }
   });
+  // Service Worker の有効化の途中で読み込まれたページは、次に開くまで管理下に入らないことがある（ブラウザの仕様）。
+  // 実際の利用と同じく、そのときは開き直してから確認する。
+  if (!(await page.evaluate(() => !!navigator.serviceWorker.controller))) await page.reload();
+  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
 }
 
 /** 第6回までの保存データ（買い物リスト・購入済みあり）を用意する */
@@ -171,8 +173,8 @@ test.describe('オフライン起動と既存データ', () => {
 
     // 価格登録も通信なしで保存できる（保存先は端末の localStorage）
     await page.goto('/prices/new');
-    await page.locator('#product').selectOption('P003');
-    await page.locator('#store').selectOption('S001');
+    await choose(page, 'product', 'P003');
+    await choose(page, 'store', 'S001');
     await page.locator('#quantity').fill('2');
     await page.locator('#price').fill('250');
     await page.getByRole('button', { name: '登録する' }).click();

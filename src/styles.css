@@ -2027,6 +2027,217 @@ textarea {
   flex-shrink: 0;
 }
 
+/* ---------- 第9回: スマホ実機フィードバック ---------- */
+
+/* 検索付き選択欄（商品・店舗） */
+/* 候補を開いて画面の上へ動かしたとき、項目名が上部ヘッダーに隠れないように */
+.field:has(.combobox) {
+  scroll-margin-top: calc(var(--topbar-h) + var(--safe-top) + 8px);
+}
+
+.combobox {
+  position: relative;
+  min-width: 0;
+}
+
+.combobox-field {
+  position: relative;
+}
+
+.combobox-field input {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 36px 10px 12px;
+  border: 1px solid #c5cfcc;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 16px; /* iOSで入力時に拡大されないよう16px以上 */
+  text-overflow: ellipsis;
+}
+
+.combobox-field input::placeholder {
+  color: #8a9794;
+}
+
+.combobox.is-open .combobox-field input::placeholder {
+  color: var(--text);
+  opacity: 0.55;
+}
+
+.combobox-caret {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.combobox.is-open .combobox-field input {
+  border-color: var(--primary);
+  outline: 3px solid rgba(31, 111, 92, 0.25);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* 候補は入力欄のすぐ下に表示（スマホでキーボードが出ても入力欄と候補が画面の上の方に残る） */
+.combobox-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: min(45vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--primary);
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  background: var(--surface);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+}
+
+.combobox-option {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 48px;
+  padding: 6px 14px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: rgba(31, 111, 92, 0.12);
+}
+
+.combobox-option + .combobox-option {
+  border-top: 1px solid var(--border);
+}
+
+.combobox-option.is-active {
+  background: var(--primary-soft);
+}
+
+.combobox-option.is-selected .combobox-label::before {
+  content: '✓ ';
+  color: var(--primary);
+}
+
+.combobox-label {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.combobox-detail {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.combobox-empty,
+.combobox-more {
+  padding: 12px 14px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.combobox-more {
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+
+/* 買い物候補: 「今回買う」を主な操作に、「価格を登録」を控えめに */
+.button-added {
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  border-color: var(--primary);
+}
+
+.candidate-actions .button-buy {
+  flex: 2 1 160px;
+}
+
+.candidate-actions .button-register {
+  flex: 1 1 100px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+@media (max-width: 900px) {
+  /*
+   * スマホ: 上部の緑ヘッダーに画面名があるので、本文の同じ画面名（h1）は画面上では隠す。
+   * 読み上げ（スクリーンリーダー）のために見出しとしては残す。
+   */
+  .page-header h1 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .page-header {
+    align-items: center;
+  }
+
+  .page-header p {
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+
+  .main {
+    padding-top: 12px;
+    gap: 12px;
+  }
+
+  /* 買い物候補: 見出しを小さく、リストを早く見せる */
+  .shopping-list h2,
+  .candidates h2 {
+    font-size: 1rem;
+  }
+
+  .shopping-list,
+  .candidates {
+    gap: 8px;
+  }
+
+  /* 買い物候補カードをコンパクトに（載せる情報は同じ） */
+  .candidates .item-card {
+    padding: 10px 12px;
+    gap: 6px;
+  }
+
+  .candidates .item-card-title {
+    font-size: 1.05rem;
+  }
+
+  .candidates .kv {
+    /* 店舗名（最安店）は長くなりやすいので少し広く */
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .candidates .kv > div {
+    padding: 4px 8px;
+  }
+
+  .candidates .kv dd {
+    font-size: 0.9rem;
+    overflow-wrap: anywhere;
+  }
+
+  .candidates .kv .price-md {
+    font-size: 1rem;
+  }
+
+  .candidates .card-actions {
+    margin-top: 0;
+  }
+
+  .candidates .card-actions .button {
+    min-height: 44px;
+  }
+}
+
 /* ---------- PC / スマホ切り替え（他の display 指定より優先させるため最後に置く） ---------- */
 
 @media (max-width: 900px) {

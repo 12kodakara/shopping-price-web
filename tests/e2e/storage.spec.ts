@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { choose } from '../fixtures/combobox';
 
 // 第2回: localStorage への保存と、各画面への反映
 // Playwright はテストごとに新しいブラウザ環境を使うため、各テストはサンプルデータから始まる。
@@ -23,8 +24,8 @@ function compareItem(page: Page, info: TestInfo, productId: string): Locator {
 
 async function registerPrice(page: Page, p: { product: string; store: string; date?: string; quantity: string; price: string }) {
   await page.goto('/prices/new');
-  await page.locator('#product').selectOption(p.product);
-  await page.locator('#store').selectOption(p.store);
+  await choose(page, 'product', p.product);
+  await choose(page, 'store', p.store);
   if (p.date) await page.locator('#date').fill(p.date);
   await page.locator('#quantity').fill(p.quantity);
   await page.locator('#price').fill(p.price);
@@ -125,8 +126,8 @@ test.describe('価格登録', () => {
     await expect(page.locator('#price-error')).toBeVisible();
     await expect(page.locator('#product')).toHaveAttribute('aria-invalid', 'true');
 
-    await page.locator('#product').selectOption('P005');
-    await page.locator('#store').selectOption('S009');
+    await choose(page, 'product', 'P005');
+    await choose(page, 'store', 'S009');
     await page.locator('#quantity').fill('0');
     await page.locator('#price').fill('-100');
     await page.locator('#date').fill('');
@@ -141,8 +142,8 @@ test.describe('価格登録', () => {
 
   test('ダブルクリックしても1件だけ登録される', async ({ page }) => {
     await page.goto('/prices/new');
-    await page.locator('#product').selectOption('P004');
-    await page.locator('#store').selectOption('S002');
+    await choose(page, 'product', 'P004');
+    await choose(page, 'store', 'S002');
     await page.locator('#quantity').fill('5');
     await page.locator('#price').fill('2890');
     await page.getByRole('button', { name: '登録する' }).dblclick();
@@ -153,8 +154,8 @@ test.describe('価格登録', () => {
 
   test('登録後は店舗・日付を残し、続けて入力できる', async ({ page }) => {
     await registerPrice(page, { product: 'P002', store: 'S002', quantity: '1', price: '398' });
-    await expect(page.locator('#store')).toHaveValue('S002');
-    await expect(page.locator('#product')).toHaveValue('');
+    await expect(page.locator('#store')).toHaveAttribute('data-value', 'S002');
+    await expect(page.locator('#product')).toHaveAttribute('data-value', '');
     await expect(page.locator('#price')).toHaveValue('');
   });
 });
@@ -181,7 +182,7 @@ test.describe('商品追加', () => {
     await expect(page.getByTestId('product-P006')).toContainText('1Lあたり');
 
     await page.goto('/prices/new');
-    await page.locator('#product').selectOption('P006');
+    await choose(page, 'product', 'P006');
     await page.locator('#quantity').fill('12');
     await page.locator('#price').fill('540');
     await expect(page.getByTestId('price-result')).toContainText('45');

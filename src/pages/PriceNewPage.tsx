@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { Combobox, type ComboOption } from '../components/Combobox';
 import { Badge, DiffBadge, errorProps, FieldError, PageHeader, Price, useNotice } from '../components/ui';
 import { repository } from '../data/repository';
 import type { PriceRecord } from '../data/types';
@@ -19,6 +20,13 @@ export function PriceNewPage() {
   // 新しく登録するときは、使用停止の商品・店舗は選べない
   const activeProducts = products.filter((p) => !p.archived);
   const activeStores = stores.filter((s) => !s.archived);
+  // 検索付き選択欄の候補（保存に使うのはID。補足欄もキーワード検索の対象）
+  const productOptions: ComboOption[] = activeProducts.map((p) => ({
+    value: p.id,
+    label: p.name,
+    detail: [p.id, p.category, p.maker].filter(Boolean).join('・'),
+  }));
+  const storeOptions: ComboOption[] = activeStores.map((st) => ({ value: st.id, label: st.name, detail: st.type }));
   // 入力のたびに作り直さないよう、保存データが変わったときだけ計算する
   const targets = useMemo(() => compareTargets(data), [data]);
   const [params] = useSearchParams();
@@ -129,23 +137,31 @@ export function PriceNewPage() {
         <div className="card form-card">
           <div className="field">
             <label htmlFor="product">商品 <span className="req">必須</span></label>
-            <select id="product" value={form.productId} onChange={(e) => set('productId', e.target.value)} {...errorProps('product', shownErrors.productId)}>
-              <option value="">商品を選択</option>
-              {activeProducts.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}（{p.id}）</option>
-              ))}
-            </select>
+            <Combobox
+              id="product"
+              value={form.productId}
+              options={productOptions}
+              onChange={(v) => set('productId', v)}
+              placeholder="商品名・IDで検索して選択"
+              emptyText="該当する商品がありません"
+              invalid={!!shownErrors.productId}
+              describedBy={shownErrors.productId ? 'product-error' : undefined}
+            />
             <FieldError id="product-error" message={shownErrors.productId} />
           </div>
 
           <div className="field">
             <label htmlFor="store">店舗 <span className="req">必須</span></label>
-            <select id="store" value={form.storeId} onChange={(e) => set('storeId', e.target.value)} {...errorProps('store', shownErrors.storeId)}>
-              <option value="">店舗を選択</option>
-              {activeStores.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
+            <Combobox
+              id="store"
+              value={form.storeId}
+              options={storeOptions}
+              onChange={(v) => set('storeId', v)}
+              placeholder="店舗名で検索して選択"
+              emptyText="該当する店舗がありません"
+              invalid={!!shownErrors.storeId}
+              describedBy={shownErrors.storeId ? 'store-error' : undefined}
+            />
             <FieldError id="store-error" message={shownErrors.storeId} />
           </div>
 

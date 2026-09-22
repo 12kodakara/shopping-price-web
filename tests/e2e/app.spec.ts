@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { choose } from '../fixtures/combobox';
 
 const pages = [
   { path: '/', heading: 'ホーム' },
@@ -140,8 +141,8 @@ test.describe('価格登録UI', () => {
   test('入力すると単価と目安との差が計算される（やさしい麦茶 6本 840円）', async ({ page }) => {
     await page.goto('/prices/new');
     const result = page.getByTestId('price-result');
-    await page.locator('#product').selectOption('P005');
-    await page.locator('#store').selectOption({ label: 'ミスターマックス' });
+    await choose(page, 'product', 'P005');
+    await choose(page, 'store', 'S009'); // ミスターマックス
     await expect(page.getByLabel('日付')).not.toHaveValue('');
     await page.getByLabel('販売数量').fill('6');
     await page.getByLabel('販売価格').fill('840');
@@ -171,9 +172,9 @@ test.describe('価格登録UI', () => {
     await page.goto('/prices/new');
     await page.getByRole('button', { name: '登録する' }).click();
     await expect(page.getByRole('status')).toContainText('未入力');
-    await page.locator('#product').selectOption('P001');
+    await choose(page, 'product', 'P001');
     await page.getByRole('button', { name: 'クリア' }).click();
-    await expect(page.locator('#product')).toHaveValue('');
+    await expect(page.locator('#product')).toHaveAttribute('data-value', '');
   });
 });
 

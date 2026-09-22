@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { choose } from '../fixtures/combobox';
 
 // 第3回: バックアップ・復元、商品・店舗・価格記録の編集、削除・使用停止
 
@@ -265,8 +266,8 @@ test.describe('価格記録の編集・削除', () => {
 
   test('価格登録直後の「修正する」から修正できる', async ({ page }) => {
     await page.goto('/prices/new');
-    await page.locator('#product').selectOption('P002');
-    await page.locator('#store').selectOption('S002');
+    await choose(page, 'product', 'P002');
+    await choose(page, 'store', 'S002');
     await page.locator('#quantity').fill('1');
     await page.locator('#price').fill('4000'); // 400円の打ち間違い
     await page.getByRole('button', { name: '登録する' }).click();
@@ -326,7 +327,10 @@ test.describe('削除・使用停止', () => {
 
     // 価格登録・価格比較・買い物候補から外れる
     await page.goto('/prices/new');
-    await expect(page.locator('#product option[value="P005"]')).toHaveCount(0);
+    await page.locator('#product').click();
+    await page.locator('#product').fill('P005');
+    await expect(page.getByTestId('product-combobox').locator('[role="option"][data-value="P005"]')).toHaveCount(0);
+    await expect(page.getByTestId('product-combobox')).toContainText('該当する商品がありません');
     await page.goto('/compare');
     await expect(compareItem(page, info, 'P005')).toHaveCount(0);
     await page.goto('/shopping');
@@ -407,8 +411,8 @@ test.describe('実運用シミュレーション', () => {
 
     // 4. 価格を登録（天然水 24本 1,680円 → 70円/本 = 目安と同じ）
     await page.goto('/prices/new');
-    await page.locator('#product').selectOption('P006');
-    await page.locator('#store').selectOption('S010');
+    await choose(page, 'product', 'P006');
+    await choose(page, 'store', 'S010');
     await page.locator('#quantity').fill('24');
     await page.locator('#price').fill('1680');
     await page.getByRole('button', { name: '登録する' }).click();

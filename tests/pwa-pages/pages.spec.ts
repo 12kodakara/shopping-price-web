@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { largeData } from '../fixtures/largeData';
+import { choose } from '../fixtures/combobox';
 
 // 第8回: GitHub Pages のように、サイトの一番上ではなく /<リポジトリ名>/ の下で配信したときの確認。
 //   ・ローカル: npm run build:pages → npm run preview:pages（http://localhost:4373/shopping-price-web/）
@@ -21,10 +22,11 @@ function pngSize(buf: Buffer) {
 async function waitForServiceWorker(page: Page) {
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
-    if (!navigator.serviceWorker.controller) {
-      await new Promise<void>((resolve) => navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true }));
-    }
   });
+  // Service Worker の有効化の途中で読み込まれたページは、次に開くまで管理下に入らないことがある（ブラウザの仕様）。
+  // 実際の利用と同じく、そのときは開き直してから確認する。
+  if (!(await page.evaluate(() => !!navigator.serviceWorker.controller))) await page.reload();
+  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
 }
 
 test.describe('公開先のパスでの表示', () => {
@@ -148,8 +150,8 @@ test.describe('PWA（公開先のパス）', () => {
     }
     // 通信なしでも価格登録できる（保存先は端末の localStorage）
     await page.goto(`${BASE}prices/new`);
-    await page.locator('#product').selectOption('P005');
-    await page.locator('#store').selectOption('S009');
+    await choose(page, 'product', 'P005');
+    await choose(page, 'store', 'S009');
     await page.locator('#quantity').fill('6');
     await page.locator('#price').fill('810');
     await page.getByRole('button', { name: '登録する' }).click();
