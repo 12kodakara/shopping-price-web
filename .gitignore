@@ -1,0 +1,33 @@
+# 依存パッケージ・ビルド成果物（GitHub Actions がその都度作り直す）
+node_modules
+dist
+dist-pages
+*.tsbuildinfo
+
+# テスト・計測の成果物
+test-results
+playwright-report
+blob-report
+
+# 秘密情報（このアプリは使わないが、誤って入れないように）
+.env
+.env.*
+
+# 個人データ（データ管理画面で保存したバックアップ・書き出し）
+shopping-price-backup-*.json
+shopping-price-raw-*.json
+
+# Excel（基準版はこのフォルダの外にあるが、コピーを置いても入らないように）
+*.xlsx
+*.xls
+~$*
+
+# 一時ファイル・OSやエディタのファイル
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/*
+!.vscode/extensions.json
+.idea

@@ -1,0 +1,113 @@
+# ============================================================
+# 買い物価格比較 Web版を GitHub Pages へ公開する
+#
+# main へ push するたびに、テスト → ビルド → 公開 を自動で行います。
+# 手動でも実行できます（Actions タブ → この workflow → Run workflow）。
+#
+# ★このアプリはサーバーもデータベースも使いません。★
+#   データは利用者の端末（ブラウザの localStorage）にだけ保存されます。
+#   この workflow が扱うのはアプリの画面（HTML・JS・CSS・アイコン）だけで、
+#   秘密情報（APIキーなど）は一切受け取りません。
+#
+# ★最初の一度だけ、GitHub の画面で Pages を有効にする必要があります。★
+#   Settings → Pages → Build and deployment → Source → 「GitHub Actions」
+#   （Actions の権限では Pages の有効化はできないため）
+# ============================================================
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 必要最小限の権限だけ。contents は読み取りのみで、リポジトリへ書き戻しません。
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 公開は1本ずつ。進行中のものは中断しない（中途半端な公開状態を作らないため）。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: テストとビルド
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ソースを取得
+        uses: actions/checkout@v4
+
+      - name: Node.js を用意
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: 依存関係をインストール
+        # package-lock.json のとおりに入れる（ci は lock を書き換えない）
+        run: npm ci
+
+      # ★壊れたものを公開しないための関門。どれか1つでも落ちれば公開しません。★
+      #   画面テスト（Playwright）は Microsoft Edge を使うため、公開前に手元のPCで実行します（npm run test:e2e）。
+      - name: 単体テスト
+        run: npm test
+
+      - name: 型チェックとビルド
+        # project site なので https://<ユーザー名>.github.io/<リポジトリ名>/ の下に置きます。
+        # リポジトリ名から組み立てるので、リポジトリを改名しても直す必要はありません。
+        run: npm run build -- --base=/${{ github.event.repository.name }}/
+
+      - name: PWA の成果物を確認
+        run: |
+          set -e
+          BASE="/${{ github.event.repository.name }}/"
+          for f in index.html 404.html sw.js manifest.webmanifest icons/icon-192.png icons/icon-512.png; do
+            test -f "dist/$f" || { echo "::error::dist/$f がありません"; exit 1; }
+          done
+          grep -q "const BASE = \"$BASE\";" dist/sw.js || { echo "::error::sw.js の公開先パスが $BASE になっていません"; exit 1; }
+          grep -qE "const VERSION = '[0-9a-f]{12}';" dist/sw.js || { echo "::error::sw.js の版番号が埋め込まれていません"; exit 1; }
+          grep -q "\"start_url\": \"$BASE\"" dist/manifest.webmanifest || { echo "::error::manifest の start_url が $BASE になっていません"; exit 1; }
+          cmp -s dist/index.html dist/404.html || { echo "::error::404.html が index.html と一致しません"; exit 1; }
+          echo "OK: PWA の成果物（公開先 $BASE）"
+
+      # 公開する直前に、成果物へ秘密情報・個人データが混ざっていないか調べる。
+      # 一致した値そのものは表示しません（ファイル名だけ）。
+      - name: 成果物に秘密情報が無いか確認
+        run: |
+          HITS=$(grep -rlE 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|github_pat_|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|sk-[A-Za-z0-9]{20,}|@gmail\.com|C:\\\\Users\\\\' dist || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::公開成果物に秘密情報らしき文字列があります。公開を中止します。"
+            echo "$HITS" | sed 's/^/  /'
+            exit 1
+          fi
+          BACKUPS=$(find dist -name 'shopping-price-backup-*.json' -o -name 'shopping-price-raw-*.json')
+          if [ -n "$BACKUPS" ]; then
+            echo "::error::公開成果物にバックアップファイルが含まれています。公開を中止します。"
+            exit 1
+          fi
+          echo "OK: 秘密情報・バックアップは含まれていません"
+
+      - name: Pages の設定を読み込む
+        # リポジトリの Pages が有効（Source: GitHub Actions）になっていないと、ここで失敗します。
+        uses: actions/configure-pages@v5
+
+      - name: 公開成果物をアップロード
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: 公開
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: GitHub Pages へ公開
+        id: deployment
+        uses: actions/deploy-pages@v4
