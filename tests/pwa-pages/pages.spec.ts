@@ -28,7 +28,13 @@ async function waitForServiceWorker(page: Page) {
 }
 
 test.describe('公開先のパスでの表示', () => {
-  test('トップ画面が表示され、検索エンジンに載せない設定がある', async ({ page }, info) => {
+  test('トップ画面が表示され、検索エンジンに載せない設定がある', async ({ page }) => {
+    // コンソールの重大なエラー（読み込み失敗・実行時エラー）がないことも確認する
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+    page.on('console', (m) => {
+      if (m.type() === 'error') errors.push(`console: ${m.text()}`);
+    });
     const res = await page.goto(BASE);
     expect(res!.status()).toBe(200);
     if (DEPLOYED) expect(page.url()).toMatch(/^https:\/\//);
@@ -39,7 +45,13 @@ test.describe('公開先のパスでの表示', () => {
     const assets = await page.evaluate(() => [...document.querySelectorAll('script[src], link[rel="stylesheet"]')].map((e) => e.getAttribute('src') ?? e.getAttribute('href')));
     expect(assets.length).toBeGreaterThanOrEqual(2);
     for (const a of assets) expect(a!.startsWith(`${BASE}assets/`)).toBe(true);
-    expect(info.project.name).toBeTruthy();
+    // 画面を一通り開いてもエラーが出ない
+    for (const path of ['products', 'stores', 'prices/new', 'compare', 'shopping', 'history', 'settings']) {
+      await page.goto(`${BASE}${path}`);
+      await expect(page.locator('h1')).toBeVisible();
+    }
+    // 直接開いた画面は GitHub Pages が 404 で返すため、その読み込み自体の記録は除く（アプリは表示される）
+    expect(errors.filter((e) => !/status of 404/.test(e))).toEqual([]);
   });
 
   test('下部ナビ・メニューでの移動が公開先のパスの下になる', async ({ page }) => {
@@ -186,6 +198,49 @@ test.describe('初めて開いたとき・データの移し方', () => {
     const json = JSON.parse(readFileSync(await download.path(), 'utf-8'));
     expect(json.version).toBe(1);
     expect(json.priceRecords).toHaveLength(250);
+  });
+
+  test('検索・絞り込み・ページ分割が公開先のパスでも動く（テスト専用データ）', async ({ page }) => {
+    const data = largeData({ products: 120, stores: 60, records: 400, archivedProductRatio: 0.1 });
+    await page.goto(BASE);
+    await page.evaluate(([key, value]) => localStorage.setItem(key, value), [KEY, JSON.stringify(data)] as const);
+
+    // 商品: ページ分割 → 検索で1ページ目に戻る → 使用停止の切り替え
+    await page.goto(`${BASE}products`);
+    await expect(page.getByTestId('product-count')).toHaveText('全108件中 1〜50件');
+    await page.getByRole('navigation', { name: 'ページ' }).getByRole('button', { name: /次へ/ }).click();
+    await expect(page.locator('.pager-status')).toHaveText('2 / 3ページ');
+    // 期待する件数はテスト用データから数える
+    const active = data.products.filter((p) => !p.archived);
+    const archived = data.products.filter((p) => p.archived);
+    const milk = (list: { name: string }[]) => list.filter((p) => p.name.includes('牛乳')).length;
+    await page.getByRole('searchbox', { name: '商品を検索' }).fill('牛乳');
+    await expect(page.getByTestId('product-count')).toHaveText(`${milk(active)} / ${active.length}件`);
+    await expect(page.locator('.pager-status')).toHaveCount(0); // 1ページに収まる → ページ操作なし（1ページ目）
+    await page.getByRole('searchbox', { name: '商品を検索' }).fill('');
+    await page.getByRole('radio', { name: '使用停止' }).check();
+    await expect(page.getByTestId('product-count')).toHaveText(`${archived.length}件`);
+    await page.getByRole('button', { name: 'クリア', exact: true }).click();
+    await expect(page.getByTestId('product-count')).toHaveText('全108件中 1〜50件');
+
+    // 店舗: 検索
+    await page.goto(`${BASE}stores`);
+    await expect(page.getByTestId('store-count')).toHaveText('全60件中 1〜50件');
+    await page.getByRole('searchbox', { name: '店舗を検索' }).fill('テスト店 05');
+    const stores05 = data.stores.filter((st) => st.name.includes('05')).length;
+    await expect(page.getByTestId('store-count')).toHaveText(`${stores05} / 60件`);
+
+    // 価格履歴: 期間での絞り込み・ページ分割
+    await page.goto(`${BASE}history?product=all`);
+    await expect(page.getByTestId('record-count')).toHaveText('全400件中 1〜50件');
+    await page.getByLabel('開始日').fill('2026-01-01');
+    await page.getByLabel('終了日').fill('2026-03-31');
+    await expect(page.getByTestId('record-count')).toContainText(' / 400件');
+    const dates = await page.getByTestId('history-list').locator('.muted.small').allInnerTexts();
+    expect(dates.filter((t) => /^\d+\/\d+ /.test(t)).every((t) => /^[1-3]\//.test(t))).toBe(true);
+
+    // テストデータを残さない（このテスト用のブラウザ環境の中だけだが、念のため消す）
+    await page.evaluate((key) => localStorage.removeItem(key), KEY);
   });
 
   test('アドレス（origin）が違えばデータも別（自動では移らない）', async ({ page }) => {
