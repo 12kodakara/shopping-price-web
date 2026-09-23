@@ -51,6 +51,8 @@ npm run verify:deploy # 公開後の確認（公開URLに対して PWA・画面�
 | `src/lib/useMediaQuery.ts` | 画面幅に応じた表示の切り替え |
 | `tests/fixtures/largeData.ts` | 大量データのテスト用生成器 |
 | `docs/performance-round6.md` | 第6回の計測結果 |
+| `docs/cloud-sync-design.md` | 第10回のクラウド同期 設計書（まだ未接続） |
+| `src/data/dataStore.ts` | 保存層の境界（型のみ。将来のクラウド版の差し替え用） |
 | `public/manifest.webmanifest` | PWA の設定（名前・アイコン・表示方法） |
 | `public/icons/` | アプリのアイコン（仮） |
 | `pwa/sw.js` | Service Worker の雛形（ビルド時に dist/sw.js になる） |
