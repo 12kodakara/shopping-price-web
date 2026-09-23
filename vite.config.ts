@@ -83,7 +83,7 @@ function pwaPlugin(): Plugin {
 export default defineConfig({
   plugins: [react(), pwaPlugin()],
   server: { port: 5173, strictPort: true },
-  preview: { port: 4173, strictPort: true },
+  preview: { port: 4273, strictPort: true },
   test: {
     include: ['src/**/*.test.ts'],
   },

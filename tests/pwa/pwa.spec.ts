@@ -4,7 +4,7 @@ import { largeData } from '../fixtures/largeData';
 import { choose } from '../fixtures/combobox';
 
 // 第7回: PWA（manifest・アイコン・Service Worker・オフライン起動・更新・画面端の余白）
-// 本番ビルドを vite preview（http://localhost:4173）で配信して確認する。
+// 本番ビルドを vite preview（http://localhost:4273）で配信して確認する。
 // Playwright はテストごとに新しいブラウザ環境を作るので、Service Worker もキャッシュも毎回まっさらな状態から始まる。
 
 const KEY = 'shopping-price-web/v1';
@@ -116,8 +116,8 @@ test.describe('Service Worker', () => {
       const urls = (await cache.keys()).map((r) => new URL(r.url).pathname);
       return { script: reg?.active?.scriptURL, scope: reg?.scope, keys, urls };
     });
-    expect(info.script).toBe('http://localhost:4173/sw.js');
-    expect(info.scope).toBe('http://localhost:4173/');
+    expect(info.script).toBe('http://localhost:4273/sw.js');
+    expect(info.scope).toBe('http://localhost:4273/');
     expect(info.keys).toHaveLength(1);
     expect(info.urls).toEqual(expect.arrayContaining(['/', '/index.html', '/manifest.webmanifest', '/icons/icon-192.png']));
     expect(info.urls.some((u) => u.startsWith('/assets/') && u.endsWith('.js'))).toBe(true);
@@ -126,7 +126,7 @@ test.describe('Service Worker', () => {
   });
 
   test('開発サーバー（npm run dev）では登録しない', async ({ page }) => {
-    await page.goto('http://localhost:5173/');
+    await page.goto('http://localhost:5373/');
     await expect(page.getByRole('heading', { level: 1, name: 'ホーム' })).toBeVisible();
     await page.waitForTimeout(500);
     const count = await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length);

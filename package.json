@@ -13,10 +13,14 @@
     "perf:render": "playwright test --config playwright.perf.config.ts",
     "phone": "npm run build && vite preview --host",
     "icons": "node scripts/generate-icons.mjs",
-    "build:pages": "vite build --base=/shopping-price-web/ --outDir dist-pages --emptyOutDir",
+    "build:pages": "vite build --mode nocloud --base=/shopping-price-web/ --outDir dist-pages --emptyOutDir",
     "preview:pages": "vite preview --base=/shopping-price-web/ --outDir dist-pages --port 4373 --strictPort",
     "verify:deploy": "playwright test --config playwright.deploy.config.ts",
-    "dev:cloudmock": "vite --mode cloudmock --port 5273 --strictPort"
+    "dev:cloudmock": "vite --mode cloudmock --port 5273 --strictPort",
+    "check:cloud": "node scripts/check-cloud-env.mjs",
+    "dev:nocloud": "vite --mode nocloud --port 5373 --strictPort",
+    "build:test": "vite build --mode nocloud",
+    "scan:build": "node scripts/scan-build.mjs dist"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.0",

@@ -15,6 +15,7 @@ blob-report
 # 実値を含まない見本・テスト専用のダミー設定だけは Git に入れる
 !.env.example
 !.env.cloudmock
+!.env.nocloud
 
 # 個人データ（データ管理画面で保存したバックアップ・書き出し）
 shopping-price-backup-*.json

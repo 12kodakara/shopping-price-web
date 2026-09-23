@@ -247,13 +247,13 @@ test.describe('初めて開いたとき・データの移し方', () => {
 
   test('アドレス（origin）が違えばデータも別（自動では移らない）', async ({ page }) => {
     test.skip(DEPLOYED, 'ローカルの2つのアドレスで確認する');
-    // 別のアドレス（http://localhost:4173）に保存したデータは、公開先相当のアドレスからは見えない
-    await page.goto('http://localhost:4173/');
+    // 別のアドレス（http://localhost:4273）に保存したデータは、公開先相当のアドレスからは見えない
+    await page.goto('http://localhost:4273/');
     await page.evaluate((key) => localStorage.setItem(key, JSON.stringify({ marker: 'other-origin' })), KEY);
     await page.goto(BASE);
     const here = await saved(page);
     expect(here).not.toContain('other-origin');
-    await page.goto('http://localhost:4173/');
+    await page.goto('http://localhost:4273/');
     expect(await saved(page)).toContain('other-origin');
   });
 });

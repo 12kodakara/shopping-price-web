@@ -6,6 +6,7 @@
 //   VITE_SUPABASE_URL              … プロジェクトのURL（例: https://xxxx.supabase.co）
 //   VITE_SUPABASE_PUBLISHABLE_KEY  … 公開用キー（新しい名前。sb_publishable_... ）
 //   VITE_SUPABASE_ANON_KEY         … 公開用キー（従来の名前。どちらか一方でよい）
+//   VITE_CLOUD_DISABLED=1          … 設定があっても無効にする（テスト・切り分け用）
 //
 // ここで扱うのは「公開してよい値」だけ。VITE_ で始まる値はビルド結果のJavaScriptに
 // 埋め込まれ、誰でも読める。管理用キー（service_role）やデータベースのパスワードは
@@ -49,6 +50,9 @@ function isUsableUrl(url: string): boolean {
  * 問題がある場合だけ開発者向けにコンソールへ出す（利用者への警告ダイアログは出さない）。
  */
 export function readCloudConfig(env: Record<string, string | boolean | undefined> = import.meta.env): CloudConfig | null {
+  // 明示的に無効化する指定（テストや切り分け用。ビルド時に VITE_CLOUD_DISABLED=1）
+  if (String(env.VITE_CLOUD_DISABLED ?? '') === '1') return null;
+
   const url = String(env.VITE_SUPABASE_URL ?? '').trim();
   const key = String(env.VITE_SUPABASE_PUBLISHABLE_KEY ?? env.VITE_SUPABASE_ANON_KEY ?? '').trim();
   if (!url && !key) return null; // 未設定（通常の状態）

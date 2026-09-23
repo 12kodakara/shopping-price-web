@@ -4,10 +4,10 @@
 # main へ push するたびに、テスト → ビルド → 公開 を自動で行います。
 # 手動でも実行できます（Actions タブ → この workflow → Run workflow）。
 #
-# ★このアプリはサーバーもデータベースも使いません。★
-#   データは利用者の端末（ブラウザの localStorage）にだけ保存されます。
-#   この workflow が扱うのはアプリの画面（HTML・JS・CSS・アイコン）だけで、
-#   秘密情報（APIキーなど）は一切受け取りません。
+# ★データは利用者の端末（ブラウザの localStorage）に保存されます。★
+#   この workflow が扱うのはアプリの画面（HTML・JS・CSS・アイコン）と、
+#   クラウドのログインに使う「公開前提の2つの値」だけです。
+#   秘密情報（service_role キー・Secret key・データベースのパスワード）は一切受け取りません。
 #
 # ★最初の一度だけ、GitHub の画面で Pages を有効にする必要があります。★
 #   Settings → Pages → Build and deployment → Source → 「GitHub Actions」
@@ -59,7 +59,35 @@ jobs:
       - name: 型チェックとビルド
         # project site なので https://<ユーザー名>.github.io/<リポジトリ名>/ の下に置きます。
         # リポジトリ名から組み立てるので、リポジトリを改名しても直す必要はありません。
+        #
+        # クラウド同期（Supabase）の接続設定は、リポジトリの Variables から渡します。
+        #   Settings → Secrets and variables → Actions → Variables
+        #     VITE_SUPABASE_URL       … Project URL
+        #     VITE_SUPABASE_ANON_KEY  … 公開用キー（publishable / anon）
+        # どちらも「ブラウザに配る公開前提の値」なので Variables で扱います。
+        # 未設定でもビルドは成功し、その場合クラウド機能は無効（従来どおり localStorage のみ）になります。
+        # ★ service_role キー・Secret key・データベースのパスワードは絶対に設定しないでください。
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
         run: npm run build -- --base=/${{ github.event.repository.name }}/
+
+      # 値そのものは出力せず、「クラウド設定が入ったかどうか」だけを表示します。
+      - name: クラウド設定の反映を確認
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          set -e
+          if [ -n "$VITE_SUPABASE_URL" ] && [ -n "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo "クラウド設定: あり（ログイン機能が有効なビルド）"
+            grep -rq "supabase" dist/assets || { echo "::error::設定があるのに成果物へ反映されていません"; exit 1; }
+          elif [ -z "$VITE_SUPABASE_URL" ] && [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo "クラウド設定: なし（従来どおり localStorage のみで動作するビルド）"
+          else
+            echo "::error::VITE_SUPABASE_URL と VITE_SUPABASE_ANON_KEY は両方設定してください（片方だけは不可）"
+            exit 1
+          fi
 
       - name: PWA の成果物を確認
         run: |
@@ -75,21 +103,9 @@ jobs:
           echo "OK: PWA の成果物（公開先 $BASE）"
 
       # 公開する直前に、成果物へ秘密情報・個人データが混ざっていないか調べる。
-      # 一致した値そのものは表示しません（ファイル名だけ）。
+      # 見つかった値そのものは表示しない（ファイル名と種類だけ）。
       - name: 成果物に秘密情報が無いか確認
-        run: |
-          HITS=$(grep -rlE 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|github_pat_|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|sk-[A-Za-z0-9]{20,}|@gmail\.com|C:\\\\Users\\\\' dist || true)
-          if [ -n "$HITS" ]; then
-            echo "::error::公開成果物に秘密情報らしき文字列があります。公開を中止します。"
-            echo "$HITS" | sed 's/^/  /'
-            exit 1
-          fi
-          BACKUPS=$(find dist -name 'shopping-price-backup-*.json' -o -name 'shopping-price-raw-*.json')
-          if [ -n "$BACKUPS" ]; then
-            echo "::error::公開成果物にバックアップファイルが含まれています。公開を中止します。"
-            exit 1
-          fi
-          echo "OK: 秘密情報・バックアップは含まれていません"
+        run: node scripts/scan-build.mjs dist
 
       - name: Pages の設定を読み込む
         # リポジトリの Pages が有効（Source: GitHub Actions）になっていないと、ここで失敗します。
