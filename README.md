@@ -198,3 +198,21 @@ npm run verify:deploy           # 公開後、公開URLに対して確認
 - ローカルで試すときは `.env.local` に書く（Git には入らない）。見本は `.env.example`。
 - `VITE_` で始まる値はビルド結果に埋め込まれ、誰でも読める。**service_role キーやDBのパスワードは絶対に設定しない**（設定された場合はアプリ側で検出し、クラウド機能を無効にする）。
 - 本番（GitHub Pages）では、GitHub の Variables に登録してビルド時に渡す。
+
+### 本番（GitHub Pages）でログインを有効にする手順
+
+1. GitHub のリポジトリ画面 → **Settings** → 左の **Secrets and variables** → **Actions**
+2. **Variables** タブ → **New repository variable**
+3. 次の2つを登録する（Secrets ではなく Variables。どちらも公開前提の値のため）
+
+   | Name | Value |
+   |---|---|
+   | `VITE_SUPABASE_URL` | Supabase の Project URL |
+   | `VITE_SUPABASE_ANON_KEY` | Supabase の公開用キー（publishable / anon） |
+
+4. **Actions** タブ → 「Deploy to GitHub Pages」 → **Run workflow** で公開しなおす
+5. 公開URLの「データ管理」を開き、「アカウント・クラウド同期」欄が使える状態になっていることを確認する
+
+- 片方だけ登録するとビルドは失敗する（設定ミスに気づけるようにするため）。
+- 両方とも未登録なら、これまでどおりクラウド未設定のまま公開される。
+- Supabase の **Authentication → URL Configuration** に、公開URL（`https://<ユーザー名>.github.io/<リポジトリ名>/settings`）が Redirect URLs として登録されている必要がある。
