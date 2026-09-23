@@ -2251,3 +2251,47 @@ textarea {
     display: none !important;
   }
 }
+
+/* ---------- 第11回: アカウント・クラウド同期 ---------- */
+
+.cloud-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 420px;
+}
+
+.cloud-form .field {
+  width: 100%;
+}
+
+.cloud-sent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--good-soft);
+  color: var(--good);
+}
+
+.cloud-sent p {
+  margin: 0;
+}
+
+.cloud-success {
+  margin: 0;
+  color: var(--good);
+  font-weight: 700;
+}
+
+.cloud-error {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-weight: 700;
+}

@@ -15,9 +15,11 @@
     "icons": "node scripts/generate-icons.mjs",
     "build:pages": "vite build --base=/shopping-price-web/ --outDir dist-pages --emptyOutDir",
     "preview:pages": "vite preview --base=/shopping-price-web/ --outDir dist-pages --port 4373 --strictPort",
-    "verify:deploy": "playwright test --config playwright.deploy.config.ts"
+    "verify:deploy": "playwright test --config playwright.deploy.config.ts",
+    "dev:cloudmock": "vite --mode cloudmock --port 5273 --strictPort"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router-dom": "^7.18.4"

@@ -1,7 +1,7 @@
 # 買い物価格比較 Web版
 
 個人用の買い物価格比較表（Excel版「買い物価格比較.xlsx」）の Web 版。
-現在は **第8回：Web公開（GitHub Pages）** まで対応。入力した内容はこのブラウザの localStorage に保存される（外部サーバーには送らない）。
+現在は **第11回：クラウド同期の認証基盤（ログインのみ・データ同期はまだ）** まで対応。入力した内容はこのブラウザの localStorage に保存される（外部サーバーには送らない）。
 
 ## 起動
 
@@ -25,6 +25,7 @@ npm run icons       # 仮アイコン（public/icons/）を作り直す
 npm run build:pages   # GitHub Pages と同じ /shopping-price-web/ の下で動くビルド（dist-pages/）
 npm run preview:pages # その確認用サーバー（http://localhost:4373/shopping-price-web/）
 npm run verify:deploy # 公開後の確認（公開URLに対して PWA・画面のテストを実行）
+npm run dev:cloudmock # クラウド（ログイン画面）の動作確認用。テスト専用のダミー設定で起動する
 ```
 
 ## 構成
@@ -52,6 +53,9 @@ npm run verify:deploy # 公開後の確認（公開URLに対して PWA・画面�
 | `tests/fixtures/largeData.ts` | 大量データのテスト用生成器 |
 | `docs/performance-round6.md` | 第6回の計測結果 |
 | `docs/cloud-sync-design.md` | 第10回のクラウド同期 設計書（まだ未接続） |
+| `src/cloud/` | クラウド接続（設定・Supabaseクライアント・ログイン） |
+| `src/components/CloudSyncSection.tsx` | データ管理の「アカウント・クラウド同期」欄 |
+| `.env.example` | クラウド接続に使う環境変数の見本（実値は入れない） |
 | `src/data/dataStore.ts` | 保存層の境界（型のみ。将来のクラウド版の差し替え用） |
 | `public/manifest.webmanifest` | PWA の設定（名前・アイコン・表示方法） |
 | `public/icons/` | アプリのアイコン（仮） |
@@ -177,3 +181,20 @@ npm test && npm run test:e2e   # 単体テスト・画面テスト（PWA とサ�
 git push                        # main に push すると自動で公開
 npm run verify:deploy           # 公開後、公開URLに対して確認
 ```
+
+## クラウド同期（第11回・ログインのみ）
+
+- 現在の公開版は **クラウド未設定**。アプリはこれまでどおり localStorage だけで動き、外部への通信は一切ない（テストで確認済み）。
+- 環境変数を設定したビルドでだけ、データ管理に「アカウント・クラウド同期」欄が有効になり、メールのリンク（Magic Link）でログイン・ログアウトできる。
+- **ログインしても、商品・店舗・価格履歴の送受信はまだ行わない**（同期は第13回以降）。
+
+### 環境変数
+
+| 名前 | 内容 | 公開 |
+|---|---|---|
+| `VITE_SUPABASE_URL` | Supabase の Project URL | される（問題なし） |
+| `VITE_SUPABASE_PUBLISHABLE_KEY`（または `VITE_SUPABASE_ANON_KEY`） | 公開用キー | される（RLS必須） |
+
+- ローカルで試すときは `.env.local` に書く（Git には入らない）。見本は `.env.example`。
+- `VITE_` で始まる値はビルド結果に埋め込まれ、誰でも読める。**service_role キーやDBのパスワードは絶対に設定しない**（設定された場合はアプリ側で検出し、クラウド機能を無効にする）。
+- 本番（GitHub Pages）では、GitHub の Variables に登録してビルド時に渡す。

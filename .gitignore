@@ -12,6 +12,9 @@ blob-report
 # 秘密情報（このアプリは使わないが、誤って入れないように）
 .env
 .env.*
+# 実値を含まない見本・テスト専用のダミー設定だけは Git に入れる
+!.env.example
+!.env.cloudmock
 
 # 個人データ（データ管理画面で保存したバックアップ・書き出し）
 shopping-price-backup-*.json

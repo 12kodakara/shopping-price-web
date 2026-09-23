@@ -17,6 +17,12 @@ export default defineConfig({
       testDir: 'tests/pwa',
       use: { baseURL: 'http://localhost:4173', viewport: { width: 375, height: 740 }, isMobile: true, hasTouch: true },
     },
+    // クラウド（Supabase）のログイン画面。テスト専用のダミー設定で起動し、通信はテスト側で差し替える
+    {
+      name: 'cloud',
+      testDir: 'tests/cloud',
+      use: { baseURL: 'http://localhost:5273', viewport: { width: 375, height: 740 }, isMobile: true, hasTouch: true },
+    },
     // GitHub Pages と同じく /shopping-price-web/ の下で配信したときの確認（公開先のパスに合わせたビルド）
     {
       name: 'pwa-pages',
@@ -26,6 +32,7 @@ export default defineConfig({
   ],
   webServer: [
     { command: 'npm run dev', url: 'http://localhost:5173', reuseExistingServer: true },
+    { command: 'npm run dev:cloudmock', url: 'http://localhost:5273', reuseExistingServer: true },
     { command: 'npm run build && npm run preview', url: 'http://localhost:4173', reuseExistingServer: true, timeout: 180000 },
     {
       command: 'npm run build:pages && npm run preview:pages',

@@ -1,3 +1,4 @@
+import { CloudSyncSection } from '../components/CloudSyncSection';
 import { DeviceStorageInfo } from '../components/DeviceStorageInfo';
 import { formatDateTime, RestorePanel, SummaryTable } from '../components/RestorePanel';
 import { PageHeader, useNotice } from '../components/ui';
@@ -78,6 +79,8 @@ export function SettingsPage() {
       </section>
 
       <DeviceStorageInfo />
+
+      <CloudSyncSection />
 
       <section className="card" aria-labelledby="backup-heading">
         <h2 id="backup-heading">バックアップを保存</h2>
