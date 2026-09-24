@@ -7,13 +7,17 @@ const url = new URL(process.env.DEPLOY_URL ?? 'https://12kodakara.github.io/shop
 process.env.DEPLOY_URL = url.href;
 process.env.PAGES_BASE = url.pathname.endsWith('/') ? url.pathname : `${url.pathname}/`;
 
+// 手元のPCではインストール済みの Microsoft Edge、GitHub Actions では同梱の Chromium を使う
+const isCI = !!process.env.CI;
+
 export default defineConfig({
   testDir: 'tests/pwa-pages',
   reporter: 'list',
   workers: 1,
+  retries: isCI ? 2 : 0,
   use: {
     baseURL: url.origin,
-    channel: 'msedge',
+    ...(isCI ? {} : { channel: 'msedge' }),
     viewport: { width: 375, height: 740 },
     isMobile: true,
     hasTouch: true,

@@ -9,13 +9,39 @@ test-results
 playwright-report
 blob-report
 
-# 秘密情報（このアプリは使わないが、誤って入れないように）
+# ===== 秘密情報（絶対に GitHub へ入れない） =====
+# 環境変数ファイル（実値が入るのは .env.local。GitHub では Variables を使う）
 .env
 .env.*
+*.env
 # 実値を含まない見本・テスト専用のダミー設定だけは Git に入れる
 !.env.example
 !.env.cloudmock
 !.env.nocloud
+
+# 鍵・証明書
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+.netrc
+
+# 認証情報・トークンの類（名前で弾く）
+credentials
+credentials.*
+*credentials*.json
+*-credentials*
+secrets
+secrets.*
+*secret*.json
+service-role*
+service_role*
+*.token
+.supabase/
 
 # 個人データ（データ管理画面で保存したバックアップ・書き出し）
 shopping-price-backup-*.json

@@ -164,7 +164,11 @@ npm run dev:cloudmock # クラウド（ログイン画面）の動作確認用�
 
 ### 公開先
 - GitHub Pages（無料）: `https://12kodakara.github.io/shopping-price-web/`
-- `.github/workflows/deploy.yml` … main に push すると、単体テスト → 型チェック・ビルド → PWA 成果物と秘密情報の確認 → 公開 を自動で行う。
+- `.github/workflows/deploy.yml` … main に push すると、次を自動で行う。
+  - **build**：単体テスト → 型チェック・ビルド → クラウド設定の反映確認 → PWA 成果物の確認 → 秘密情報の確認
+  - **e2e**：画面テスト（Playwright / Chromium）。build と並行して実行
+  - **deploy**：build と e2e の**両方が通ったときだけ**公開
+  - **verify**：公開されたURLに対して、表示・PWA の確認
 - 公開先はサイトの一番上ではなく `/<リポジトリ名>/` の下になるため、ビルド時に `--base=/<リポジトリ名>/` を指定する（workflow が自動で指定）。ルーター・Service Worker・manifest・アイコンはこの値に合わせて出力される。
 - GitHub Pages は `/products` などを直接開くと 404.html を返すので、ビルド時に index.html と同じ中身の 404.html を作っている（アプリは表示される）。
 - 検索エンジンに載せない設定（`noindex`）をしている。アクセス制限ではないので、URL を知っていればだれでも開ける（データは各自の端末にだけ保存されるので、他人のデータが見えることはない）。
@@ -181,6 +185,8 @@ npm test && npm run test:e2e   # 単体テスト・画面テスト（PWA とサ�
 git push                        # main に push すると自動で公開
 npm run verify:deploy           # 公開後、公開URLに対して確認
 ```
+
+手元で実行しなくても、push すれば同じ内容を GitHub Actions が実行する（Node.js が無いPCからでも検証できる）。
 
 ## クラウド同期（第11回・ログインのみ）
 
@@ -216,3 +222,57 @@ npm run verify:deploy           # 公開後、公開URLに対して確認
 - 片方だけ登録するとビルドは失敗する（設定ミスに気づけるようにするため）。
 - 両方とも未登録なら、これまでどおりクラウド未設定のまま公開される。
 - Supabase の **Authentication → URL Configuration** に、公開URL（`https://<ユーザー名>.github.io/<リポジトリ名>/settings`）が Redirect URLs として登録されている必要がある。
+
+## 2台のPCで作業する（自宅PC・会社PC）
+
+**GitHub のリポジトリが唯一の正本。** ローカルのフォルダは作業用の写しとして扱う。
+
+| | 自宅PC | 会社PC |
+|---|---|---|
+| Git | あり | あり |
+| Claude Code | あり | あり |
+| Node.js | あり（v24） | **入れられない** |
+| できること | 編集・全テスト・ビルド・公開後確認 | 編集・Git操作のみ |
+
+### 会社PCでの進め方
+
+```bash
+git pull            # 最新を取り込む（作業開始時に必ず）
+# …Claude Code で編集…
+git diff            # 変更内容を確認
+git add -A && git commit -m "説明"
+git push            # push すると GitHub Actions が全部検証してくれる
+```
+
+- push 後、GitHub の **Actions** タブで緑のチェックが付けば検証成功。赤い×なら公開されないので、内容を直して push しなおす。
+- 画面テストが落ちたときは、その実行画面の下にある「画面テストの記録」をダウンロードすると、失敗時のスクリーンショットと操作記録が見られる。
+- **会社PCに `.env.local` を置く必要はない。** 無くてもソース編集と Git 操作はすべてできる。
+
+### 会社PCで実行できないこと / どこで代わりに確認するか
+
+| 実行できないこと | 代わりの確認場所 |
+|---|---|
+| `npm test`（単体テスト） | GitHub Actions の build ジョブ |
+| 型チェック・ビルド | GitHub Actions の build ジョブ |
+| `npm run test:e2e`（画面テスト） | GitHub Actions の e2e ジョブ |
+| PWA・秘密情報の確認 | GitHub Actions の build ジョブ |
+| 公開URLの確認 | GitHub Actions の verify ジョブ |
+| `npm run dev`（画面を見ながらの開発） | **自宅PCのみ**（見た目の最終判断は自宅PCで行う） |
+| `npm run perf` / `perf:render`（性能計測） | **自宅PCのみ** |
+
+### 改行コード
+
+`.gitattributes` で「リポジトリの中も、取り出したファイルも LF」に統一している。PCごとの Git の設定に関係なく同じになるので、2台を行き来しても改行だけの差分は出ない。
+
+### Supabase の設定の置き場所（役割の整理）
+
+| 値 | 置き場所 | 公開されるか | 会社PCに必要か |
+|---|---|---|---|
+| Project URL | 自宅PCの `.env.local` / GitHub の **Variables** | 公開される（問題なし） | 不要 |
+| publishable key（= anon key） | 同上 | 公開される（RLS で守る前提の値） | 不要 |
+| Secret key / service_role キー | **どこにも置かない（使わない）** | — | 不要 |
+| データベースのパスワード | **どこにも置かない（使わない）** | — | 不要 |
+
+- `.env.local` … 自宅PCでローカル実行するときだけ使う。Git 管理外。
+- GitHub の **Variables** … 本番ビルドに渡す。Secrets ではなく Variables を使う（どちらも公開前提の値のため）。
+- 会社PCでローカル実行が必要になった場合は、Node.js が使える環境が前提になるため、そのときに改めて安全な方法を検討する（`.env.local` のコピーはしない）。

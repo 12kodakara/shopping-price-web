@@ -1,0 +1,20 @@
+# 改行コードの統一（自宅PC・会社PCの2台で作業しても差分が出ないように）
+#
+# リポジトリの中身は常に LF。取り出したときも LF のまま（Windowsのエディタは LF を扱えます）。
+# こう決めておくと、PCごとの Git の設定（core.autocrlf）に左右されません。
+* text=auto eol=lf
+
+# 画像・フォントなどは変換しない（壊れるため）
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.woff  binary
+*.woff2 binary
+*.ttf  binary
+*.pdf  binary
+*.xlsx binary
+*.xls  binary
+*.zip  binary

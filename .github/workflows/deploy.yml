@@ -1,8 +1,12 @@
 # ============================================================
 # 買い物価格比較 Web版を GitHub Pages へ公開する
 #
-# main へ push するたびに、テスト → ビルド → 公開 を自動で行います。
+# main へ push するたびに、次を自動で行います。
+#   テスト（単体）・ビルド ┐
+#   画面テスト（Playwright）┘ → 両方通れば公開 → 公開URLの確認
 # 手動でも実行できます（Actions タブ → この workflow → Run workflow）。
+#
+# ★会社PCなど Node.js を入れられない環境からでも、push すればここで全部検証されます。★
 #
 # ★データは利用者の端末（ブラウザの localStorage）に保存されます。★
 #   この workflow が扱うのはアプリの画面（HTML・JS・CSS・アイコン）と、
@@ -52,7 +56,7 @@ jobs:
         run: npm ci
 
       # ★壊れたものを公開しないための関門。どれか1つでも落ちれば公開しません。★
-      #   画面テスト（Playwright）は Microsoft Edge を使うため、公開前に手元のPCで実行します（npm run test:e2e）。
+      #   画面テスト（Playwright）は別のジョブ（e2e）で並行して実行します。
       - name: 単体テスト
         run: npm test
 
@@ -116,14 +120,81 @@ jobs:
         with:
           path: dist
 
+  e2e:
+    name: 画面テスト
+    runs-on: ubuntu-latest
+
+    # 会社PC（Node.js を入れられない）では実行できない画面テストを、ここで肩代わりする。
+    # 外部サービスへは接続しない：Supabase の通信はテスト内でダミー応答に差し替えている。
+    steps:
+      - name: ソースを取得
+        uses: actions/checkout@v4
+
+      - name: Node.js を用意
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: 依存関係をインストール
+        run: npm ci
+
+      - name: ブラウザを用意
+        # 手元のPCは Microsoft Edge を使うが、ここには無いので Playwright 同梱の Chromium を入れる
+        run: npx playwright install --with-deps chromium
+
+      - name: 画面テスト（PC・スマホ・PWA・公開先パス・ログイン画面）
+        run: npm run test:e2e
+
+      - name: 失敗したときの記録を保存
+        # 落ちたテストの操作記録・スクリーンショット。Actions の画面からダウンロードして原因を確認できる。
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 画面テストの記録
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
   deploy:
     name: 公開
-    needs: build
+    # ビルドと画面テストの両方が通ったときだけ公開する
+    needs: [build, e2e]
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: GitHub Pages へ公開
         id: deployment
         uses: actions/deploy-pages@v4
+
+  verify:
+    name: 公開後の確認
+    needs: deploy
+    runs-on: ubuntu-latest
+
+    # 公開されたURLに対して、実際に画面が出るか・PWA が動くかを確認する。
+    # 読み取りだけで、利用者のデータにも Supabase にも触れない。
+    steps:
+      - name: ソースを取得
+        uses: actions/checkout@v4
+
+      - name: Node.js を用意
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: 依存関係をインストール
+        run: npm ci
+
+      - name: ブラウザを用意
+        run: npx playwright install --with-deps chromium
+
+      - name: 公開URLの確認
+        env:
+          DEPLOY_URL: ${{ needs.deploy.outputs.page_url }}
+        run: npm run verify:deploy
