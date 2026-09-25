@@ -2295,3 +2295,96 @@ textarea {
   color: var(--warn);
   font-weight: 700;
 }
+
+/* ---------- 第12回: クラウドとのデータのやりとり ---------- */
+
+.cloud-data {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0 14px;
+}
+
+.cloud-counts {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.cloud-counts th,
+.cloud-counts td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+}
+
+.cloud-counts thead th,
+.cloud-counts tbody th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.cloud-counts tbody td {
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* スマホでは押しやすいように横幅いっぱいに並べる */
+@media (max-width: 600px) {
+  .cloud-actions .button {
+    flex: 1 1 100%;
+  }
+}
+
+.cloud-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card-soft, transparent);
+}
+
+.cloud-preview h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.cloud-preview p {
+  margin: 0;
+}
+
+.cloud-plan {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-weight: 700;
+}
+
+.cloud-backup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.cloud-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-weight: 600;
+}
+
+.cloud-confirm input {
+  width: 20px;
+  height: 20px;
+}

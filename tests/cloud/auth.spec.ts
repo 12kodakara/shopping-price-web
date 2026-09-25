@@ -81,7 +81,7 @@ test.describe('クラウド同期が設定されているとき（ダミー設�
     await mockSupabase(page);
     await page.goto('/settings');
     await expect(section(page)).toContainText('アカウント・クラウド同期');
-    await expect(page.getByTestId('cloud-status')).toContainText('同期機能は準備中');
+    await expect(page.getByTestId('cloud-status')).toContainText('ログインすると');
     await expect(page.getByLabel('メールアドレス')).toBeVisible();
     await expect(page.getByRole('button', { name: 'ログイン用のリンクを送る' })).toBeVisible();
     // 画面上部に常時表示のログインUIは出さない（データ管理の中だけ）
@@ -138,7 +138,7 @@ test.describe('クラウド同期が設定されているとき（ダミー設�
     // URLに残った ?code= は消える（引き換えが終わった後に消えるので、消えるまで待つ）
     await expect.poll(() => new URL(page.url()).search).toBe('');
     await expect(page.getByTestId('cloud-notice')).toContainText('ログインしました');
-    await expect(page.getByTestId('cloud-status')).toContainText('同期機能は準備中');
+    await expect(page.getByTestId('cloud-status')).toContainText('自動では送受信しません');
 
     // 再読み込みしてもログインは保たれる
     await page.reload();
