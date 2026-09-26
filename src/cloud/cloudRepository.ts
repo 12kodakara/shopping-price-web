@@ -74,8 +74,15 @@ async function countOf(client: Client, table: string, onlyPurchased = false): Pr
   return { ok: true, value: count ?? 0 };
 }
 
-/** クラウド側の件数（本人の分だけ。RLS により他人の行は数にも入らない） */
-export async function getCloudCounts(): Promise<CloudResult<DataCounts>> {
+/** クラウド側の状態（件数と、最後に保存した日時） */
+export interface CloudStatus {
+  counts: DataCounts;
+  /** 最後に「クラウドへ保存」した日時（ISO 8601）。一度も保存していなければ null */
+  lastSyncedAt: string | null;
+}
+
+/** クラウド側の件数と最終保存日時（本人の分だけ。RLS により他人の行は数にも入らない） */
+export async function getCloudStatus(): Promise<CloudResult<CloudStatus>> {
   const session = await requireSession();
   if (!session.ok) return session;
   const { client } = session.value;
@@ -91,14 +98,22 @@ export async function getCloudCounts(): Promise<CloudResult<DataCounts>> {
   const purchased = await countOf(client, 'shopping_items', true);
   if (!purchased.ok) return purchased;
 
+  // 最後に保存した日時（設定の行。まだ無ければ null）
+  const { data: settings, error: settingsError } = await client.from('user_settings').select('last_synced_at').limit(1);
+  if (settingsError) return { ok: false, error: describeCloudError(settingsError, 'クラウドの状態を取得できませんでした') };
+  const lastSyncedAt = (settings?.[0] as { last_synced_at?: string | null } | undefined)?.last_synced_at ?? null;
+
   return {
     ok: true,
     value: {
-      products: products.value,
-      stores: stores.value,
-      priceRecords: priceRecords.value,
-      shoppingList: shoppingList.value,
-      purchased: purchased.value,
+      counts: {
+        products: products.value,
+        stores: stores.value,
+        priceRecords: priceRecords.value,
+        shoppingList: shoppingList.value,
+        purchased: purchased.value,
+      },
+      lastSyncedAt,
     },
   };
 }

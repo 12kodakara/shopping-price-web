@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { sendMagicLink, setAuthMessage, signOut, useAuthMessage, useAuthState, validateEmail } from '../cloud/auth';
-import { getCloudCounts, getCloudData, replaceCloudData } from '../cloud/cloudRepository';
+import { getCloudData, getCloudStatus, replaceCloudData } from '../cloud/cloudRepository';
 import { countsOf, EMPTY_COUNTS, fingerprint, type DataCounts } from '../cloud/cloudRows';
 import { backupRequiredBeforeDownload, planDownload, planUpload, type SyncPlan } from '../cloud/cloudSync';
 import { repository } from '../data/repository';
@@ -138,6 +138,8 @@ function CloudDataPanel() {
 
   const [cloud, setCloud] = useState<DataCounts | null>(null);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
+  /** クラウドに最後に保存した日時（クラウド側に記録されているもの） */
+  const [cloudSavedAt, setCloudSavedAt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [mode, setMode] = useState<Mode | null>(null);
@@ -149,17 +151,18 @@ function CloudDataPanel() {
   /** クラウドの件数を読み直す。失敗したら理由を表示するだけで、端末のデータは触らない */
   async function refresh(): Promise<DataCounts | null> {
     setBusy(true);
-    const result = await getCloudCounts();
+    const result = await getCloudStatus();
     setBusy(false);
     if (!result.ok) {
       setCloud(null);
       setMessage({ kind: 'error', text: result.error });
       return null;
     }
-    setCloud(result.value);
+    setCloud(result.value.counts);
+    setCloudSavedAt(result.value.lastSyncedAt);
     setCheckedAt(new Date());
     setIdentical(false);
-    return result.value;
+    return result.value.counts;
   }
 
   async function openPreview(next: Mode) {
@@ -199,6 +202,7 @@ function CloudDataPanel() {
     }
     setCloud(result.value);
     setCheckedAt(new Date());
+    setCloudSavedAt(new Date().toISOString());
     setIdentical(true);
     closePreview();
     setMessage({ kind: 'success', text: 'この端末のデータをクラウドへ保存しました（端末のデータはそのままです）' });
@@ -297,6 +301,14 @@ function CloudDataPanel() {
         {checkedAt ? `クラウドの確認：${checkedAt.toLocaleString('ja-JP')}` : 'クラウドの状態はまだ確認していません'}
       </p>
 
+      {cloud !== null && (
+        <p className="muted small" data-testid="cloud-updated-at">
+          {cloudSavedAt
+            ? `クラウドの最終保存：${new Date(cloudSavedAt).toLocaleString('ja-JP')}`
+            : 'クラウドにはまだ一度も保存していません'}
+        </p>
+      )}
+
       {message && (
         <p
           className={message.kind === 'error' ? 'cloud-error' : message.kind === 'success' ? 'cloud-success' : 'muted small'}
@@ -330,6 +342,14 @@ function CloudDataPanel() {
               ? `クラウドは、この端末の内容（商品 ${local.products}件 / 店舗 ${local.stores}件 / 価格履歴 ${local.priceRecords}件 / 買い物リスト ${local.shoppingList}件）になります。この端末のデータは変わりません。`
               : `この端末は、クラウドの内容（商品 ${cloud?.products ?? 0}件 / 店舗 ${cloud?.stores ?? 0}件 / 価格履歴 ${cloud?.priceRecords ?? 0}件 / 買い物リスト ${cloud?.shoppingList ?? 0}件）に置き換わります。`}
           </p>
+
+          {mode === 'download' && (
+            <p className="muted small">
+              {cloudSavedAt
+                ? `クラウドのデータは ${new Date(cloudSavedAt).toLocaleString('ja-JP')} に保存されたものです。`
+                : 'クラウドのデータの保存日時は記録されていません。'}
+            </p>
+          )}
 
           {mode === 'download' && (
             <button type="button" className="button button-ghost button-sm" onClick={checkIdentical} disabled={busy} data-testid="cloud-compare">

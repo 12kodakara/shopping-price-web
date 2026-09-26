@@ -61,7 +61,9 @@ function cloudFixture(): Db {
       },
     ],
     shopping_items: [{ user_id: USER_ID, product_id: 'P002', purchased: false }],
-    user_settings: [{ user_id: USER_ID, data_version: 1, counter_product: 2, counter_store: 1, counter_record: 1 }],
+    user_settings: [
+      { user_id: USER_ID, data_version: 1, counter_product: 2, counter_store: 1, counter_record: 1, last_synced_at: '2026-09-25T01:23:00.000Z' },
+    ],
   };
 }
 
@@ -208,6 +210,8 @@ test.describe('クラウドとのデータのやりとり', () => {
     await expect(counts.getByRole('row', { name: /店舗/ })).toContainText('1件');
     await expect(counts.getByRole('row', { name: /価格履歴/ })).toContainText('1件');
     await expect(page.getByTestId('cloud-checked-at')).toContainText('クラウドの確認：');
+    // クラウド側に記録されている最終保存日時も表示される
+    await expect(page.getByTestId('cloud-updated-at')).toContainText('クラウドの最終保存：2026/9/25');
   });
 
   test('クラウドが空なら、この端末のデータをそのまま保存できる', async ({ page }) => {
@@ -221,6 +225,7 @@ test.describe('クラウドとのデータのやりとり', () => {
     await expect(page.getByTestId('cloud-confirm')).toHaveCount(0);
     await page.getByTestId('cloud-run').click();
     await expect(page.getByTestId('cloud-message')).toContainText('クラウドへ保存しました');
+    await expect(page.getByTestId('cloud-updated-at')).toContainText('クラウドの最終保存：');
 
     // クラウドに入った内容（サンプルデータ）
     expect(mock.db.products).toHaveLength(5);
@@ -285,6 +290,7 @@ test.describe('クラウドとのデータのやりとり', () => {
 
     await page.getByTestId('cloud-download').click();
     await expect(page.getByTestId('cloud-plan')).toContainText('この端末にも別の内容のデータがあります');
+    await expect(page.getByTestId('cloud-preview')).toContainText('2026/9/25');
 
     // バックアップも確認もまだなので実行できない
     await expect(page.getByTestId('cloud-run')).toBeDisabled();

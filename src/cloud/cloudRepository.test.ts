@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSampleData } from '../data/mockData';
-import { describeCloudError, getCloudCounts, getCloudData, replaceCloudData } from './cloudRepository';
+import { describeCloudError, getCloudData, getCloudStatus, replaceCloudData } from './cloudRepository';
 import { getSupabase } from './supabaseClient';
 
 // Supabase クライアントを差し替えて、「ログインしていないときに何もしない」ことを確かめる。
@@ -28,7 +28,7 @@ beforeEach(() => {
 describe('クラウド未設定のとき', () => {
   it('件数の取得も保存もしない', async () => {
     mockedGetSupabase.mockResolvedValue(null);
-    expect(await getCloudCounts()).toEqual({ ok: false, error: 'クラウド同期が設定されていません' });
+    expect(await getCloudStatus()).toEqual({ ok: false, error: 'クラウド同期が設定されていません' });
     expect(await getCloudData()).toEqual({ ok: false, error: 'クラウド同期が設定されていません' });
     expect(await replaceCloudData(createSampleData())).toEqual({ ok: false, error: 'クラウド同期が設定されていません' });
   });
@@ -39,8 +39,8 @@ describe('ログインしていないとき', () => {
     const client = fakeClient(null);
     mockedGetSupabase.mockResolvedValue(client as never);
 
-    const counts = await getCloudCounts();
-    expect(counts.ok).toBe(false);
+    const status = await getCloudStatus();
+    expect(status.ok).toBe(false);
     const data = await getCloudData();
     expect(data.ok).toBe(false);
     expect(client.from).not.toHaveBeenCalled();
