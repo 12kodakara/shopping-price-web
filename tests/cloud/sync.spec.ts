@@ -91,6 +91,14 @@ async function mockSupabase(page: Page, options: MockOptions = {}): Promise<Mock
   const db: Db = options.cloud ?? emptyDb();
   const calls: Mock['calls'] = [];
 
+  // 別オリジンへの通信なので、事前確認（OPTIONS）にも答えられるようにしておく
+  const cors = {
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET,HEAD,POST,PATCH,DELETE,OPTIONS',
+    'access-control-allow-headers': '*',
+    'access-control-expose-headers': 'content-range,content-length',
+  };
+
   await page.route('**/supabase-mock/**', async (route: Route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -98,15 +106,20 @@ async function mockSupabase(page: Page, options: MockOptions = {}): Promise<Mock
     const body = request.postData() ?? '';
     calls.push({ method, path: url.pathname + url.search, body });
 
+    if (method === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: cors, body: '' });
+      return;
+    }
+
     // ---------- 認証 ----------
     if (url.pathname.endsWith('/auth/v1/otp')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: '{}' });
       return;
     }
     if (url.pathname.endsWith('/auth/v1/token')) {
       await route.fulfill({
         status: 200,
-        contentType: 'application/json',
+        headers: { ...cors, 'content-type': 'application/json' },
         body: JSON.stringify({
           access_token: 'dummy-access-token',
           token_type: 'bearer',
@@ -128,7 +141,7 @@ async function mockSupabase(page: Page, options: MockOptions = {}): Promise<Mock
       return;
     }
     if (url.pathname.endsWith('/auth/v1/logout')) {
-      await route.fulfill({ status: 204, body: '' });
+      await route.fulfill({ status: 204, headers: cors, body: '' });
       return;
     }
 
@@ -144,7 +157,7 @@ async function mockSupabase(page: Page, options: MockOptions = {}): Promise<Mock
         if (options.failTable && options.failTable.table === table && url.searchParams.get('select') === '*') {
           await route.fulfill({
             status: options.failTable.status,
-            headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' },
+            headers: { ...cors, 'content-type': 'application/json' },
             body: options.failTable.body === undefined ? '' : JSON.stringify(options.failTable.body),
           });
           return;
@@ -152,7 +165,7 @@ async function mockSupabase(page: Page, options: MockOptions = {}): Promise<Mock
         if (options.failSelect) {
           await route.fulfill({
             status: options.failSelect.status,
-            headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' },
+            headers: { ...cors, 'content-type': 'application/json' },
             // 本文が空の応答（HEAD のときに起きていた状態）も再現する
             body: options.failSelect.body === undefined ? '' : JSON.stringify(options.failSelect.body),
           });
@@ -168,11 +181,9 @@ async function mockSupabase(page: Page, options: MockOptions = {}): Promise<Mock
         await route.fulfill({
           status: 200,
           headers: {
+            ...cors,
             'content-type': 'application/json',
             ...(options.hideCountHeader ? {} : { 'content-range': `*/${filtered.length}` }),
-            // 別オリジンからは content-range が既定で読めないため、読めるように明示する（本物の Supabase も同じ設定）
-            'access-control-allow-origin': '*',
-            'access-control-expose-headers': 'content-range',
           },
           body: method === 'HEAD' ? '' : JSON.stringify(body),
         });
@@ -188,17 +199,17 @@ async function mockSupabase(page: Page, options: MockOptions = {}): Promise<Mock
         // upsert（user_settings）は同じ user_id を置き換える
         const isUpsert = (request.headers()['prefer'] ?? '').includes('merge-duplicates');
         db[table] = isUpsert ? [...rows.filter((r) => !incoming.some((i) => i.user_id === r.user_id)), ...incoming] : [...rows, ...incoming];
-        await route.fulfill({ status: 201, contentType: 'application/json', body: '[]' });
+        await route.fulfill({ status: 201, headers: { ...cors, 'content-type': 'application/json' }, body: '[]' });
         return;
       }
       if (method === 'DELETE') {
         db[table] = [];
-        await route.fulfill({ status: 204, body: '' });
+        await route.fulfill({ status: 204, headers: cors, body: '' });
         return;
       }
     }
 
-    await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
+    await route.fulfill({ status: 404, headers: { ...cors, 'content-type': 'application/json' }, body: '{}' });
   });
 
   return { db, calls };
@@ -239,6 +250,12 @@ async function saveBackup(page: Page) {
 
 test.describe('クラウドとのデータのやりとり', () => {
   test('ログインしただけでは通信せず、ボタンを押すと件数が表示される', async ({ page }) => {
+    const failures: string[] = [];
+    page.on('requestfailed', (r) => failures.push(`失敗 ${r.method()} ${new URL(r.url()).pathname} ${r.failure()?.errorText ?? ''}`));
+    page.on('pageerror', (e) => failures.push(`例外 ${String(e).slice(0, 120)}`));
+    page.on('console', (m) => {
+      if (m.type() === 'error') failures.push(`コンソール ${m.text().slice(0, 120)}`);
+    });
     const mock = await mockSupabase(page, { cloud: cloudFixture() });
     await signIn(page);
 
@@ -249,7 +266,8 @@ test.describe('クラウドとのデータのやりとり', () => {
 
     await page.getByTestId('cloud-check').click();
     const counts = page.getByTestId('cloud-counts');
-    await expect(counts.getByRole('row', { name: /商品/ })).toContainText('2件');
+    const log = () => `通信: ${mock.calls.map((c) => `${c.method} ${c.path}`).join(' | ') || 'なし'} / 画面: ${failures.join(' | ') || '異常なし'}`;
+    await expect(counts.getByRole('row', { name: /商品/ }), log()).toContainText('2件', { timeout: 20000 });
     await expect(counts.getByRole('row', { name: /店舗/ })).toContainText('1件');
     await expect(counts.getByRole('row', { name: /価格履歴/ })).toContainText('1件');
     await expect(page.getByTestId('cloud-checked-at')).toContainText('クラウドの確認：');
