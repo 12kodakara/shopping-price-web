@@ -226,14 +226,32 @@ async function startEmptyLocal(page: Page) {
   );
 }
 
-/** ログインした状態にする（メールのリンクを開いたのと同じ流れ） */
+/**
+ * ログインした状態にする（メールのリンクを開いたのと同じ流れ）。
+ * どの手順で止まったのかが分かるように、段階ごとに短い待ち時間と説明を付ける。
+ */
 async function signIn(page: Page) {
+  const step = { at: '開始' };
+  page.on('pageerror', (e) => console.log(`[画面の例外/${step.at}] ${String(e).slice(0, 200)}`));
+  page.on('requestfailed', (r) => console.log(`[通信失敗/${step.at}] ${r.method()} ${new URL(r.url()).pathname} ${r.failure()?.errorText ?? ''}`));
+
+  step.at = '画面を開く';
   await page.goto('/settings');
+  await expect(page.getByRole('heading', { level: 1, name: 'データ管理' }), 'データ管理の画面が表示されない').toBeVisible({ timeout: 15000 });
+
+  step.at = 'ログイン欄の表示';
+  await expect(page.getByLabel('メールアドレス'), 'ログイン欄が表示されない（クラウド設定が読めていない可能性）').toBeVisible({ timeout: 15000 });
+
+  step.at = 'リンクの送信';
   await page.getByLabel('メールアドレス').fill(EMAIL);
   await page.getByRole('button', { name: 'ログイン用のリンクを送る' }).click();
-  await expect(page.getByTestId('cloud-sent')).toBeVisible();
+  await expect(page.getByTestId('cloud-sent'), '送信後の案内が出ない（認証の通信が返っていない可能性）').toBeVisible({ timeout: 15000 });
+
+  step.at = 'リンクから戻る';
   await page.goto('/settings?code=dummy-auth-code');
-  await expect(page.getByTestId('cloud-account')).toContainText(EMAIL);
+  await expect(page.getByTestId('cloud-account'), 'ログイン状態にならない（引き換えの通信が返っていない可能性）').toContainText(EMAIL, {
+    timeout: 15000,
+  });
 }
 
 const restCalls = (mock: Mock) => mock.calls.filter((c) => c.path.includes('/rest/v1/'));
