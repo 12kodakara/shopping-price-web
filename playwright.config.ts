@@ -31,6 +31,8 @@ export default defineConfig({
   ...(isCI ? { globalTimeout: 10 * 60 * 1000 } : {}),
   use: {
     baseURL: 'http://localhost:5373',
+    // 画面の動き（スムーススクロール等）を抑えて、操作が安定するようにする
+    reducedMotion: 'reduce',
     // CI では、画面の読み込みや操作が返ってこないときに早く失敗させる（原因の場所が分かるように）
     ...(isCI ? { navigationTimeout: 20000, actionTimeout: 15000 } : {}),
     ...(isCI ? {} : { channel: 'msedge' }),

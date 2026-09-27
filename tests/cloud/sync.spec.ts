@@ -257,12 +257,24 @@ async function signIn(page: Page) {
 const restCalls = (mock: Mock) => mock.calls.filter((c) => c.path.includes('/rest/v1/'));
 
 /**
+ * クラウド操作のボタンを押す。
+ * この欄は画面の下の方にあるため、先に画面内へ移動させてから押す
+ * （環境によっては、押す直前の自動スクロールが終わらないことがあるため）。
+ */
+async function tap(page: Page, testId: string) {
+  const button = page.getByTestId(testId);
+  await button.waitFor({ state: 'visible' });
+  await button.evaluate((node) => node.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior }));
+  await button.click();
+}
+
+/**
  * 取り込み前のバックアップを保存する。
  * ファイル保存そのもの（ダウンロード完了の待ち受け）は環境差が出やすいので、ここでは画面の状態で確認する。
  * 実際にファイルが作られることは「取得は、バックアップを保存して確認してから実行できる」で確認している。
  */
 async function saveBackup(page: Page) {
-  await page.getByTestId('cloud-backup').click();
+  await tap(page, 'cloud-backup');
   await expect(page.getByTestId('cloud-backup')).toContainText('バックアップを保存しました');
 }
 
@@ -282,7 +294,7 @@ test.describe('クラウドとのデータのやりとり', () => {
     await expect(page.getByTestId('cloud-checked-at')).toContainText('まだ確認していません');
     await expect(page.getByTestId('cloud-counts')).toContainText('—');
 
-    await page.getByTestId('cloud-check').click();
+    await tap(page, 'cloud-check');
     const counts = page.getByTestId('cloud-counts');
     const log = () => `通信: ${mock.calls.map((c) => `${c.method} ${c.path}`).join(' | ') || 'なし'} / 画面: ${failures.join(' | ') || '異常なし'}`;
     await expect(counts.getByRole('row', { name: /商品/ }), log()).toContainText('2件', { timeout: 20000 });
@@ -298,11 +310,11 @@ test.describe('クラウドとのデータのやりとり', () => {
     await signIn(page);
     const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
 
-    await page.getByTestId('cloud-upload').click();
+    await tap(page, 'cloud-upload');
     await expect(page.getByTestId('cloud-plan')).toContainText('クラウドは空です');
     // 上書きの確認は不要
     await expect(page.getByTestId('cloud-confirm')).toHaveCount(0);
-    await page.getByTestId('cloud-run').click();
+    await tap(page, 'cloud-run');
     await expect(page.getByTestId('cloud-message')).toContainText('クラウドへ保存しました');
     await expect(page.getByTestId('cloud-updated-at')).toContainText('クラウドの最終保存：');
 
@@ -322,13 +334,14 @@ test.describe('クラウドとのデータのやりとり', () => {
     const mock = await mockSupabase(page, { cloud: cloudFixture() });
     await signIn(page);
 
-    await page.getByTestId('cloud-upload').click();
+    await tap(page, 'cloud-upload');
     await expect(page.getByTestId('cloud-plan')).toContainText('クラウドに別の内容のデータがあります');
     await expect(page.getByTestId('cloud-run')).toBeDisabled();
 
+    await page.getByTestId('cloud-confirm').scrollIntoViewIfNeeded();
     await page.getByTestId('cloud-confirm').check();
     await expect(page.getByTestId('cloud-run')).toBeEnabled();
-    await page.getByTestId('cloud-run').click();
+    await tap(page, 'cloud-run');
     await expect(page.getByTestId('cloud-message')).toContainText('クラウドへ保存しました');
     // 置き換わっている（クラウドの元データは残らない）
     expect(mock.db.products).toHaveLength(5);
@@ -340,10 +353,10 @@ test.describe('クラウドとのデータのやりとり', () => {
     await startEmptyLocal(page);
     await signIn(page);
 
-    await page.getByTestId('cloud-upload').click();
+    await tap(page, 'cloud-upload');
     await expect(page.getByTestId('cloud-plan')).toContainText('この端末にデータがありません');
     await expect(page.getByTestId('cloud-run')).toBeDisabled();
-    await page.getByTestId('cloud-cancel').click();
+    await tap(page, 'cloud-cancel');
 
     // クラウドのデータはそのまま
     expect(mock.db.products).toHaveLength(2);
@@ -355,7 +368,7 @@ test.describe('クラウドとのデータのやりとり', () => {
     await signIn(page);
     const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
 
-    await page.getByTestId('cloud-download').click();
+    await tap(page, 'cloud-download');
     await expect(page.getByTestId('cloud-plan')).toContainText('クラウドにデータがありません');
     await expect(page.getByTestId('cloud-run')).toBeDisabled();
 
@@ -367,21 +380,22 @@ test.describe('クラウドとのデータのやりとり', () => {
     await mockSupabase(page, { cloud: cloudFixture() });
     await signIn(page);
 
-    await page.getByTestId('cloud-download').click();
+    await tap(page, 'cloud-download');
     await expect(page.getByTestId('cloud-plan')).toContainText('この端末にも別の内容のデータがあります');
     await expect(page.getByTestId('cloud-preview')).toContainText('2026/9/25');
 
     // バックアップも確認もまだなので実行できない
     await expect(page.getByTestId('cloud-run')).toBeDisabled();
+    await page.getByTestId('cloud-confirm').scrollIntoViewIfNeeded();
     await page.getByTestId('cloud-confirm').check();
     await expect(page.getByTestId('cloud-run')).toBeDisabled();
 
     const download = page.waitForEvent('download');
-    await page.getByTestId('cloud-backup').click();
+    await tap(page, 'cloud-backup');
     expect((await download).suggestedFilename()).toMatch(/^shopping-price-backup-.*\.json$/);
     await expect(page.getByTestId('cloud-run')).toBeEnabled();
 
-    await page.getByTestId('cloud-run').click();
+    await tap(page, 'cloud-run');
     await expect(page.getByTestId('cloud-message')).toContainText('この端末へ取り込みました');
 
     // この端末のデータがクラウドの内容に置き換わった
@@ -406,12 +420,12 @@ test.describe('クラウドとのデータのやりとり', () => {
     await mockSupabase(page);
     await signIn(page);
     // まず今の端末のデータをクラウドへ保存し、両者を同じ内容にする
-    await page.getByTestId('cloud-upload').click();
-    await page.getByTestId('cloud-run').click();
+    await tap(page, 'cloud-upload');
+    await tap(page, 'cloud-run');
     await expect(page.getByTestId('cloud-message')).toContainText('クラウドへ保存しました');
 
-    await page.getByTestId('cloud-download').click();
-    await page.getByTestId('cloud-compare').click();
+    await tap(page, 'cloud-download');
+    await tap(page, 'cloud-compare');
     await expect(page.getByTestId('cloud-message')).toContainText('内容は同じです');
     await expect(page.getByTestId('cloud-plan')).toContainText('同じです');
     await expect(page.getByTestId('cloud-confirm')).toHaveCount(0);
@@ -422,8 +436,8 @@ test.describe('クラウドとのデータのやりとり', () => {
     await signIn(page);
     const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
 
-    await page.getByTestId('cloud-upload').click();
-    await page.getByTestId('cloud-run').click();
+    await tap(page, 'cloud-upload');
+    await tap(page, 'cloud-run');
     await expect(page.getByTestId('cloud-message')).toContainText('クラウドへ保存できませんでした');
 
     expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
@@ -442,7 +456,7 @@ test.describe('クラウドとのデータのやりとり', () => {
       });
     });
     await signIn(page);
-    await page.getByTestId('cloud-check').click();
+    await tap(page, 'cloud-check');
     await expect(page.getByTestId('cloud-message')).toContainText('テーブルの作成');
   });
 
@@ -462,7 +476,7 @@ test.describe('クラウドとのデータのやりとり', () => {
   test('クラウドが空でも、エラーにならず0件として表示される', async ({ page }) => {
     await mockSupabase(page);
     await signIn(page);
-    await page.getByTestId('cloud-check').click();
+    await tap(page, 'cloud-check');
 
     const counts = page.getByTestId('cloud-counts');
     for (const label of ['商品', '店舗', '価格履歴', '買い物リスト']) {
@@ -476,7 +490,7 @@ test.describe('クラウドとのデータのやりとり', () => {
     // 以前は HEAD で件数を取っていたため、エラーの本文が空になり理由が分からなかった
     await mockSupabase(page, { failSelect: { status: 404 } });
     await signIn(page);
-    await page.getByTestId('cloud-check').click();
+    await tap(page, 'cloud-check');
     const message = page.getByTestId('cloud-message');
     await expect(message).toContainText('クラウドの件数を取得できませんでした');
     // 調査の手がかり（HTTPの番号）が添えられる
@@ -490,14 +504,14 @@ test.describe('クラウドとのデータのやりとり', () => {
       failSelect: { status: 404, body: { code: 'PGRST205', message: "Could not find the table 'public.products' in the schema cache" } },
     });
     await signIn(page);
-    await page.getByTestId('cloud-check').click();
+    await tap(page, 'cloud-check');
     await expect(page.getByTestId('cloud-message')).toContainText('テーブルの作成');
   });
 
   test('★テーブルの権限が無いときは、実行すべきSQLを案内する', async ({ page }) => {
     await mockSupabase(page, { failSelect: { status: 401, body: { code: '42501', message: 'permission denied for table products' } } });
     await signIn(page);
-    await page.getByTestId('cloud-check').click();
+    await tap(page, 'cloud-check');
     const message = page.getByTestId('cloud-message');
     await expect(message).toContainText('権限設定');
     await expect(message).toContainText('grants');
@@ -508,14 +522,14 @@ test.describe('クラウドとのデータのやりとり', () => {
   test('ログインの期限切れのときは、ログインし直しを促す', async ({ page }) => {
     await mockSupabase(page, { failSelect: { status: 401, body: { message: 'JWT expired' } } });
     await signIn(page);
-    await page.getByTestId('cloud-check').click();
+    await tap(page, 'cloud-check');
     await expect(page.getByTestId('cloud-message')).toContainText('ログイン');
   });
 
   test('件数のヘッダーが読めないときは、0件と誤表示せずエラーにする', async ({ page }) => {
     await mockSupabase(page, { cloud: cloudFixture(), hideCountHeader: true });
     await signIn(page);
-    await page.getByTestId('cloud-check').click();
+    await tap(page, 'cloud-check');
     await expect(page.getByTestId('cloud-message')).toContainText('件数');
     await expect(page.getByTestId('cloud-counts')).toContainText('—');
   });
@@ -526,7 +540,7 @@ test.describe('クラウドとのデータのやりとり', () => {
     const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
     await page.route('**/supabase-mock/rest/v1/**', (route) => route.abort('failed'));
 
-    await page.getByTestId('cloud-check').click();
+    await tap(page, 'cloud-check');
     // 通信エラーはライブラリ側が3回まで自動で再試行する（1+2+4秒）ため、少し長めに待つ
     await expect(page.getByTestId('cloud-message')).toContainText(/通信できませんでした|応答がありませんでした/, { timeout: 20000 });
     // 画面が「確認中…」のまま固まらない
@@ -540,12 +554,12 @@ test.describe('クラウドとのデータのやりとり', () => {
     await mockSupabase(page, { cloud: cloudFixture() });
     await signIn(page);
 
-    await page.getByTestId('cloud-upload').click();
+    await tap(page, 'cloud-upload');
     await expect(page.getByTestId('cloud-flow')).toContainText('この端末（そのまま残ります）');
     await expect(page.getByTestId('cloud-flow')).toContainText('クラウド（置き換わります）');
-    await page.getByTestId('cloud-cancel').click();
+    await tap(page, 'cloud-cancel');
 
-    await page.getByTestId('cloud-download').click();
+    await tap(page, 'cloud-download');
     await expect(page.getByTestId('cloud-flow')).toContainText('クラウド（そのまま残ります）');
     await expect(page.getByTestId('cloud-flow')).toContainText('この端末（置き換わります）');
     await expect(page.getByTestId('cloud-undo-note')).toContainText('復元前バックアップ');
@@ -555,8 +569,8 @@ test.describe('クラウドとのデータのやりとり', () => {
   test('端末とクラウドの件数が同じときは、その旨を知らせる', async ({ page }) => {
     await mockSupabase(page);
     await signIn(page);
-    await page.getByTestId('cloud-upload').click();
-    await page.getByTestId('cloud-run').click();
+    await tap(page, 'cloud-upload');
+    await tap(page, 'cloud-run');
     await expect(page.getByTestId('cloud-message')).toContainText('クラウドへ保存しました');
     await expect(page.getByTestId('cloud-same-counts')).toContainText('件数は一致しています');
   });
@@ -564,10 +578,11 @@ test.describe('クラウドとのデータのやりとり', () => {
   test('クラウド側にだけある追加データも、IDと参照関係を保ったまま取り込める', async ({ page }) => {
     await mockSupabase(page, { cloud: cloudFixture() });
     await signIn(page);
-    await page.getByTestId('cloud-download').click();
+    await tap(page, 'cloud-download');
+    await page.getByTestId('cloud-confirm').scrollIntoViewIfNeeded();
     await page.getByTestId('cloud-confirm').check();
     await saveBackup(page);
-    await page.getByTestId('cloud-run').click();
+    await tap(page, 'cloud-run');
     await expect(page.getByTestId('cloud-message')).toContainText('この端末へ取り込みました');
 
     const stored = JSON.parse((await page.evaluate((key) => localStorage.getItem(key), KEY)) ?? '{}');
@@ -599,13 +614,14 @@ test.describe('クラウドとのデータのやりとり', () => {
       const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
 
       // 件数の確認・プレビューまでは進める
-      await page.getByTestId('cloud-download').click();
+      await tap(page, 'cloud-download');
       await expect(page.getByTestId('cloud-preview')).toBeVisible();
-      await page.getByTestId('cloud-confirm').check();
+      await page.getByTestId('cloud-confirm').scrollIntoViewIfNeeded();
+    await page.getByTestId('cloud-confirm').check();
       await saveBackup(page);
 
       // 実行すると取得の途中で失敗する
-      await page.getByTestId('cloud-run').click();
+      await tap(page, 'cloud-run');
       await expect(page.getByTestId('cloud-message')).toContainText('取得できませんでした');
 
       // 端末のデータは一切変わらない（中途半端な状態にならない）
@@ -620,7 +636,7 @@ test.describe('クラウドとのデータのやりとり', () => {
     await signIn(page);
     const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
 
-    await page.getByTestId('cloud-download').click();
+    await tap(page, 'cloud-download');
     await expect(page.getByTestId('cloud-message')).toBeVisible();
     await expect(page.getByTestId('cloud-preview')).toHaveCount(0);
     expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
@@ -631,10 +647,11 @@ test.describe('クラウドとのデータのやりとり', () => {
     await signIn(page);
     const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
 
-    await page.getByTestId('cloud-download').click();
+    await tap(page, 'cloud-download');
+    await page.getByTestId('cloud-confirm').scrollIntoViewIfNeeded();
     await page.getByTestId('cloud-confirm').check();
     await saveBackup(page);
-    await page.getByTestId('cloud-run').click();
+    await tap(page, 'cloud-run');
 
     await expect(page.getByTestId('cloud-message')).toContainText('ほかの利用者');
     expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
@@ -648,10 +665,11 @@ test.describe('クラウドとのデータのやりとり', () => {
     await signIn(page);
     const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
 
-    await page.getByTestId('cloud-download').click();
+    await tap(page, 'cloud-download');
+    await page.getByTestId('cloud-confirm').scrollIntoViewIfNeeded();
     await page.getByTestId('cloud-confirm').check();
     await saveBackup(page);
-    await page.getByTestId('cloud-run').click();
+    await tap(page, 'cloud-run');
 
     await expect(page.getByTestId('cloud-message')).toContainText('読み込めませんでした');
     expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
@@ -660,10 +678,11 @@ test.describe('クラウドとのデータのやりとり', () => {
   test('ログアウトしても、取り込んだデータはこの端末に残る', async ({ page }) => {
     await mockSupabase(page, { cloud: cloudFixture() });
     await signIn(page);
-    await page.getByTestId('cloud-download').click();
+    await tap(page, 'cloud-download');
+    await page.getByTestId('cloud-confirm').scrollIntoViewIfNeeded();
     await page.getByTestId('cloud-confirm').check();
     await saveBackup(page);
-    await page.getByTestId('cloud-run').click();
+    await tap(page, 'cloud-run');
     await expect(page.getByTestId('cloud-message')).toContainText('この端末へ取り込みました');
     const after = await page.evaluate((key) => localStorage.getItem(key), KEY);
 
