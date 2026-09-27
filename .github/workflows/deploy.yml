@@ -31,15 +31,16 @@ permissions:
   pages: write
   id-token: write
 
-# 公開は1本ずつ。進行中のものは中断しない（中途半端な公開状態を作らないため）。
-concurrency:
-  group: pages
-  cancel-in-progress: false
+# 「公開」だけを1本ずつに制限する（中途半端な公開状態を作らないため）。
+# テストやビルドまで直列にすると、1つの実行が固まったときに以後の push が動かせなくなるため、
+# concurrency は deploy ジョブにだけ付ける。
 
 jobs:
   build:
     name: テストとビルド
     runs-on: ubuntu-latest
+    # 想定は5分程度。固まったときに何時間も居座らないように上限を入れる
+    timeout-minutes: 20
 
     steps:
       - name: ソースを取得
@@ -123,6 +124,8 @@ jobs:
   e2e:
     name: 画面テスト
     runs-on: ubuntu-latest
+    # 想定は5〜10分程度。固まったときは失敗として終わらせる（原因が分かるように記録を残す）
+    timeout-minutes: 25
 
     # 会社PC（Node.js を入れられない）では実行できない画面テストを、ここで肩代わりする。
     # 外部サービスへは接続しない：Supabase の通信はテスト内でダミー応答に差し替えている。
@@ -161,6 +164,11 @@ jobs:
     # ビルドと画面テストの両方が通ったときだけ公開する
     needs: [build, e2e]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # 公開は1本ずつ。進行中のものは中断しない
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -175,6 +183,7 @@ jobs:
     name: 公開後の確認
     needs: deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     # 公開されたURLに対して、実際に画面が出るか・PWA が動くかを確認する。
     # 読み取りだけで、利用者のデータにも Supabase にも触れない。
