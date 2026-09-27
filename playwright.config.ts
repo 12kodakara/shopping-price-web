@@ -6,6 +6,15 @@ import { defineConfig } from '@playwright/test';
 // どちらも同じ Chromium 系のため、確認できる内容は変わらない。
 const isCI = !!process.env.CI;
 
+/**
+ * 実行するテストの種類を絞る（GitHub Actions で分割して動かすため）。
+ *   PW_PROJECTS=cloud npx playwright test --project=cloud
+ * 指定がなければ、これまでどおり全部を対象にする。
+ * 指定した種類に必要なサーバーだけを起動するので、実行も速くなる。
+ */
+const wanted = (process.env.PW_PROJECTS ?? '').split(',').map((v) => v.trim()).filter(Boolean);
+const needs = (...names: string[]) => wanted.length === 0 || names.some((n) => wanted.includes(n));
+
 export default defineConfig({
   testDir: 'tests/e2e',
   reporter: 'list',
@@ -15,6 +24,8 @@ export default defineConfig({
   workers: isCI ? 2 : undefined,
   // test.only の消し忘れを CI で検出する
   forbidOnly: isCI,
+  // CI で何かが固まっても、20分で打ち切って結果を出す（原因の切り分けができるように）
+  ...(isCI ? { globalTimeout: 20 * 60 * 1000 } : {}),
   use: {
     baseURL: 'http://localhost:5373',
     ...(isCI ? {} : { channel: 'msedge' }),
@@ -44,14 +55,24 @@ export default defineConfig({
     },
   ],
   webServer: [
-    { command: 'npm run dev:nocloud', url: 'http://localhost:5373', reuseExistingServer: false, timeout: 120000 },
-    { command: 'npm run dev:cloudmock', url: 'http://localhost:5273', reuseExistingServer: false, timeout: 120000 },
-    { command: 'npm run build:test && npm run preview', url: 'http://localhost:4273', reuseExistingServer: false, timeout: 300000 },
-    {
-      command: 'npm run build:pages && npm run preview:pages',
-      url: 'http://localhost:4373/shopping-price-web/',
-      reuseExistingServer: false,
-      timeout: 300000,
-    },
+    ...(needs('pc', 'smartphone')
+      ? [{ command: 'npm run dev:nocloud', url: 'http://localhost:5373', reuseExistingServer: false, timeout: 120000 }]
+      : []),
+    ...(needs('cloud')
+      ? [{ command: 'npm run dev:cloudmock', url: 'http://localhost:5273', reuseExistingServer: false, timeout: 120000 }]
+      : []),
+    ...(needs('pwa')
+      ? [{ command: 'npm run build:test && npm run preview', url: 'http://localhost:4273', reuseExistingServer: false, timeout: 300000 }]
+      : []),
+    ...(needs('pwa-pages')
+      ? [
+          {
+            command: 'npm run build:pages && npm run preview:pages',
+            url: 'http://localhost:4373/shopping-price-web/',
+            reuseExistingServer: false,
+            timeout: 300000,
+          },
+        ]
+      : []),
   ],
 });

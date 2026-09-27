@@ -122,13 +122,26 @@ jobs:
           path: dist
 
   e2e:
-    name: 画面テスト
+    name: 画面テスト（${{ matrix.name }}）
     runs-on: ubuntu-latest
-    # 想定は5〜10分程度。固まったときは失敗として終わらせる（原因が分かるように記録を残す）
-    timeout-minutes: 25
+    # 想定は各5分程度。固まったときは失敗として終わらせる（原因が分かるように記録を残す）
+    timeout-minutes: 20
 
     # 会社PC（Node.js を入れられない）では実行できない画面テストを、ここで肩代わりする。
     # 外部サービスへは接続しない：Supabase の通信はテスト内でダミー応答に差し替えている。
+    #
+    # 3つに分けて動かす。どれかが失敗・停止したときに、ジョブ名だけで場所が分かるようにするため。
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: PC・スマホ
+            projects: pc,smartphone
+          - name: PWA・公開先パス
+            projects: pwa,pwa-pages
+          - name: ログイン・クラウド同期
+            projects: cloud
+
     steps:
       - name: ソースを取得
         uses: actions/checkout@v4
@@ -146,15 +159,22 @@ jobs:
         # 手元のPCは Microsoft Edge を使うが、ここには無いので Playwright 同梱の Chromium を入れる
         run: npx playwright install --with-deps chromium
 
-      - name: 画面テスト（PC・スマホ・PWA・公開先パス・ログイン画面）
-        run: npm run test:e2e
+      - name: 画面テスト
+        env:
+          # このジョブで動かす種類だけを指定する（必要なサーバーだけが起動する）
+          PW_PROJECTS: ${{ matrix.projects }}
+        run: |
+          set -e
+          ARGS=""
+          for project in $(echo "${{ matrix.projects }}" | tr ',' ' '); do ARGS="$ARGS --project=$project"; done
+          npm run test:e2e -- $ARGS
 
       - name: 失敗したときの記録を保存
         # 落ちたテストの操作記録・スクリーンショット。Actions の画面からダウンロードして原因を確認できる。
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: 画面テストの記録
+          name: 画面テストの記録（${{ matrix.name }}）
           path: test-results/
           retention-days: 7
           if-no-files-found: ignore
