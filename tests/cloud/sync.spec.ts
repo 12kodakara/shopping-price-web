@@ -75,6 +75,10 @@ interface MockOptions {
   failSelect?: { status: number; body?: unknown };
   /** 件数のヘッダー（content-range）を返さない */
   hideCountHeader?: boolean;
+  /** 特定のテーブルの読み取りだけ失敗させる */
+  failTable?: { table: Table; status: number; body?: unknown };
+  /** ほかの利用者の行を混ぜて返す（本来 RLS で起こらないが、念のための確認） */
+  foreignRows?: boolean;
 }
 
 interface Mock {
@@ -135,6 +139,16 @@ async function mockSupabase(page: Page, options: MockOptions = {}): Promise<Mock
       const rows = db[table] ?? [];
 
       if (method === 'HEAD' || method === 'GET') {
+        // データ取得（select=*）だけを失敗させる。件数の取得（select=user_id）は成功させて、
+        // 「プレビューまでは進めるが、取り込みの途中で失敗する」状況を作る
+        if (options.failTable && options.failTable.table === table && url.searchParams.get('select') === '*') {
+          await route.fulfill({
+            status: options.failTable.status,
+            headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' },
+            body: options.failTable.body === undefined ? '' : JSON.stringify(options.failTable.body),
+          });
+          return;
+        }
         if (options.failSelect) {
           await route.fulfill({
             status: options.failSelect.status,
@@ -144,7 +158,11 @@ async function mockSupabase(page: Page, options: MockOptions = {}): Promise<Mock
           });
           return;
         }
-        const filtered = url.searchParams.get('purchased') === 'eq.true' ? rows.filter((r) => r.purchased === true) : rows;
+        const withForeign =
+          options.foreignRows && table === 'products'
+            ? [...rows, { ...(rows[0] ?? {}), user_id: '99999999-9999-9999-9999-999999999999', id: 'P900', name: 'ほかの人の商品' }]
+            : rows;
+        const filtered = url.searchParams.get('purchased') === 'eq.true' ? withForeign.filter((r) => r.purchased === true) : withForeign;
         const limit = Number(url.searchParams.get('limit') ?? '');
         const body = Number.isFinite(limit) && limit > 0 ? filtered.slice(0, limit) : filtered;
         await route.fulfill({
@@ -468,6 +486,156 @@ test.describe('クラウドとのデータのやりとり', () => {
     // 画面が「確認中…」のまま固まらない
     await expect(page.getByTestId('cloud-check')).toBeEnabled();
     expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
+  });
+
+  // ---------- 第13回: 復元（クラウド → この端末）の安全性 ----------
+
+  test('プレビューに「どちらからどちらへ」と退避の案内が出る', async ({ page }) => {
+    await mockSupabase(page, { cloud: cloudFixture() });
+    await signIn(page);
+
+    await page.getByTestId('cloud-upload').click();
+    await expect(page.getByTestId('cloud-flow')).toContainText('この端末（そのまま残ります）');
+    await expect(page.getByTestId('cloud-flow')).toContainText('クラウド（置き換わります）');
+    await page.getByTestId('cloud-cancel').click();
+
+    await page.getByTestId('cloud-download').click();
+    await expect(page.getByTestId('cloud-flow')).toContainText('クラウド（そのまま残ります）');
+    await expect(page.getByTestId('cloud-flow')).toContainText('この端末（置き換わります）');
+    await expect(page.getByTestId('cloud-undo-note')).toContainText('復元前バックアップ');
+    await expect(page.getByTestId('cloud-undo-note')).toContainText('1つ前の状態に戻す');
+  });
+
+  test('端末とクラウドの件数が同じときは、その旨を知らせる', async ({ page }) => {
+    await mockSupabase(page);
+    await signIn(page);
+    await page.getByTestId('cloud-upload').click();
+    await page.getByTestId('cloud-run').click();
+    await expect(page.getByTestId('cloud-message')).toContainText('クラウドへ保存しました');
+    await expect(page.getByTestId('cloud-same-counts')).toContainText('件数は一致しています');
+  });
+
+  test('クラウド側にだけある追加データも、IDと参照関係を保ったまま取り込める', async ({ page }) => {
+    await mockSupabase(page, { cloud: cloudFixture() });
+    await signIn(page);
+    await page.getByTestId('cloud-download').click();
+    await page.getByTestId('cloud-confirm').check();
+    const download = page.waitForEvent('download');
+    await page.getByTestId('cloud-backup').click();
+    await download;
+    await page.getByTestId('cloud-run').click();
+    await expect(page.getByTestId('cloud-message')).toContainText('この端末へ取り込みました');
+
+    const stored = JSON.parse((await page.evaluate((key) => localStorage.getItem(key), KEY)) ?? '{}');
+    // ID はクラウドのまま（勝手な再採番をしない）
+    expect(stored.products.map((p: { id: string }) => p.id)).toEqual(['P001', 'P002']);
+    expect(stored.stores.map((p: { id: string }) => p.id)).toEqual(['S001']);
+    expect(stored.priceRecords.map((r: { id: string }) => r.id)).toEqual(['R001']);
+    // 参照関係が保たれている
+    const productIds = new Set(stored.products.map((p: { id: string }) => p.id));
+    const storeIds = new Set(stored.stores.map((s: { id: string }) => s.id));
+    for (const r of stored.priceRecords) {
+      expect(productIds.has(r.productId)).toBe(true);
+      expect(storeIds.has(r.storeId)).toBe(true);
+    }
+    for (const id of stored.shoppingList) expect(productIds.has(id)).toBe(true);
+    // 形式は version 1 のまま、発番番号も引き継がれる
+    expect(stored.version).toBe(1);
+    expect(stored.counters).toEqual({ product: 2, store: 1, record: 1 });
+
+    // 画面（価格登録・買い物候補）でも整合している
+    await page.goto('/shopping');
+    await expect(page.getByRole('main')).toContainText('クラウドのパン');
+  });
+
+  for (const table of ['products', 'stores', 'price_records', 'shopping_items', 'user_settings'] as const) {
+    test('取り込みの途中で ' + table + ' の取得に失敗しても、この端末のデータは変わらない', async ({ page }) => {
+      await mockSupabase(page, { cloud: cloudFixture(), failTable: { table, status: 500, body: { message: 'boom' } } });
+      await signIn(page);
+      const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
+
+      // 件数の確認・プレビューまでは進める
+      await page.getByTestId('cloud-download').click();
+      await expect(page.getByTestId('cloud-preview')).toBeVisible();
+      await page.getByTestId('cloud-confirm').check();
+      const download = page.waitForEvent('download');
+      await page.getByTestId('cloud-backup').click();
+      await download;
+
+      // 実行すると取得の途中で失敗する
+      await page.getByTestId('cloud-run').click();
+      await expect(page.getByTestId('cloud-message')).toContainText('取得できませんでした');
+
+      // 端末のデータは一切変わらない（中途半端な状態にならない）
+      expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
+      await page.goto('/products');
+      await expect(page.getByRole('main')).toContainText('サランラップ');
+    });
+  }
+
+  test('件数の確認に失敗したときは、プレビューを開かずに知らせる', async ({ page }) => {
+    await mockSupabase(page, { failSelect: { status: 500, body: { message: 'boom' } } });
+    await signIn(page);
+    const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
+
+    await page.getByTestId('cloud-download').click();
+    await expect(page.getByTestId('cloud-message')).toBeVisible();
+    await expect(page.getByTestId('cloud-preview')).toHaveCount(0);
+    expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
+  });
+
+  test('★ほかの利用者の行が混ざっていたら、取り込まずに中止する', async ({ page }) => {
+    await mockSupabase(page, { cloud: cloudFixture(), foreignRows: true });
+    await signIn(page);
+    const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
+
+    await page.getByTestId('cloud-download').click();
+    await page.getByTestId('cloud-confirm').check();
+    const download = page.waitForEvent('download');
+    await page.getByTestId('cloud-backup').click();
+    await download;
+    await page.getByTestId('cloud-run').click();
+
+    await expect(page.getByTestId('cloud-message')).toContainText('ほかの利用者');
+    expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
+  });
+
+  test('クラウドのデータが壊れていたら、取り込まずに中止する', async ({ page }) => {
+    const broken = cloudFixture();
+    // 価格記録が、存在しない商品を指している状態
+    broken.price_records[0].product_id = 'P999';
+    await mockSupabase(page, { cloud: broken });
+    await signIn(page);
+    const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
+
+    await page.getByTestId('cloud-download').click();
+    await page.getByTestId('cloud-confirm').check();
+    const download = page.waitForEvent('download');
+    await page.getByTestId('cloud-backup').click();
+    await download;
+    await page.getByTestId('cloud-run').click();
+
+    await expect(page.getByTestId('cloud-message')).toContainText('読み込めませんでした');
+    expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
+  });
+
+  test('ログアウトしても、取り込んだデータはこの端末に残る', async ({ page }) => {
+    await mockSupabase(page, { cloud: cloudFixture() });
+    await signIn(page);
+    await page.getByTestId('cloud-download').click();
+    await page.getByTestId('cloud-confirm').check();
+    const download = page.waitForEvent('download');
+    await page.getByTestId('cloud-backup').click();
+    await download;
+    await page.getByTestId('cloud-run').click();
+    await expect(page.getByTestId('cloud-message')).toContainText('この端末へ取り込みました');
+    const after = await page.evaluate((key) => localStorage.getItem(key), KEY);
+
+    await page.getByRole('button', { name: 'ログアウト' }).click();
+    await expect(page.getByLabel('メールアドレス')).toBeVisible();
+    expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(after);
+    await page.reload();
+    expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(after);
   });
 
   test('未ログインではクラウドのデータに一切アクセスしない', async ({ page }) => {

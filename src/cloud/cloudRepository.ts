@@ -184,12 +184,23 @@ async function getCloudDataInner(): Promise<CloudResult<AppData>> {
   if (!session.ok) return session;
   const { client } = session.value;
 
+  const { userId } = session.value;
   const tables = ['products', 'stores', 'price_records', 'shopping_items', 'user_settings'] as const;
   const results: Record<string, unknown[]> = {};
   for (const table of tables) {
-    const { data, error, status } = await client.from(table).select('*').abortSignal(AbortSignal.timeout(READ_TIMEOUT_MS));
+    // 本人の行だけを取る。クラウド側でも RLS が同じ条件で絞るが、こちら側でも明示して二重にする
+    const { data, error, status } = await client
+      .from(table)
+      .select('*')
+      .eq('user_id', userId)
+      .abortSignal(AbortSignal.timeout(READ_TIMEOUT_MS));
     if (error) return { ok: false, error: describeCloudError(error, 'クラウドのデータを取得できませんでした', status) };
-    results[table] = data ?? [];
+    const rows = data ?? [];
+    // 万一ほかの利用者の行が混ざっていたら、端末には一切取り込まずに中止する
+    if (rows.some((row) => (row as { user_id?: string }).user_id !== userId)) {
+      return { ok: false, error: 'クラウドから受け取ったデータに、ほかの利用者のものが含まれていました。安全のため取り込みを中止しました。' };
+    }
+    results[table] = rows;
   }
 
   const json = fromRows({

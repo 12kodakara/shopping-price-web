@@ -260,6 +260,13 @@ function CloudDataPanel() {
   const plan: SyncPlan | null =
     mode === null || cloud === null ? null : mode === 'upload' ? planUpload(local, cloud, identical) : planDownload(local, cloud, identical);
   const needBackup = mode === 'download' && backupRequiredBeforeDownload(local);
+  /** 件数がすべて同じか（誤操作を防ぐ案内に使う。件数が同じでも内容が同じとは限らない） */
+  const sameCounts =
+    cloud !== null &&
+    local.products === cloud.products &&
+    local.stores === cloud.stores &&
+    local.priceRecords === cloud.priceRecords &&
+    local.shoppingList === cloud.shoppingList;
   const canRun = !!plan?.allowed && (!plan.needsConfirm || confirmed) && (!needBackup || backedUp) && !busy;
 
   return (
@@ -306,6 +313,12 @@ function CloudDataPanel() {
         </p>
       )}
 
+      {sameCounts && mode === null && (
+        <p className="muted small" data-testid="cloud-same-counts">
+          現在の端末とクラウドの件数は一致しています。
+        </p>
+      )}
+
       {message && (
         <p
           className={message.kind === 'error' ? 'cloud-error' : message.kind === 'success' ? 'cloud-success' : 'muted small'}
@@ -323,16 +336,40 @@ function CloudDataPanel() {
           </button>
           <button type="button" className="button button-sm" onClick={() => void openPreview('upload')} disabled={busy} data-testid="cloud-upload">
             この端末のデータをクラウドへ保存
+            <small className="cloud-direction">この端末 → クラウド</small>
           </button>
           <button type="button" className="button button-sm" onClick={() => void openPreview('download')} disabled={busy} data-testid="cloud-download">
             クラウドのデータをこの端末へ取得
+            <small className="cloud-direction">クラウド → この端末</small>
           </button>
         </div>
       ) : (
         <div className="cloud-preview" data-testid="cloud-preview">
           <h3>{mode === 'upload' ? 'この端末のデータをクラウドへ保存します' : 'クラウドのデータをこの端末へ取得します'}</h3>
 
+          <p className="cloud-flow" data-testid="cloud-flow">
+            {mode === 'upload' ? (
+              <>
+                <span className="cloud-from">この端末（そのまま残ります）</span>
+                <span className="cloud-arrow" aria-hidden="true">→</span>
+                <span className="cloud-to">クラウド（置き換わります）</span>
+              </>
+            ) : (
+              <>
+                <span className="cloud-from">クラウド（そのまま残ります）</span>
+                <span className="cloud-arrow" aria-hidden="true">→</span>
+                <span className="cloud-to">この端末（置き換わります）</span>
+              </>
+            )}
+          </p>
+
           <p className="cloud-plan" data-testid="cloud-plan">{plan?.message}</p>
+
+          {sameCounts && (
+            <p className="muted small" data-testid="cloud-same-counts">
+              現在の端末とクラウドの件数は一致しています。{mode === 'download' ? '取得しなくてもよい可能性があります。' : '保存しなおしても変わらない可能性があります。'}
+            </p>
+          )}
 
           <p className="muted small">
             {mode === 'upload'
@@ -354,10 +391,17 @@ function CloudDataPanel() {
             </button>
           )}
 
+          {mode === 'download' && (
+            <p className="muted small" data-testid="cloud-undo-note">
+              置き換える前に、この端末の現在のデータは「復元前バックアップ」として自動で退避されます。
+              取り込んだあとでも、下の「1つ前の状態に戻す」で1回だけ元に戻せます。
+            </p>
+          )}
+
           {needBackup && (
             <div className="cloud-backup">
               <p className="muted small">
-                置き換える前に、いまのデータをファイルに保存します（あとからこのファイルで戻せます）。
+                さらに念のため、いまのデータをファイルにも保存します（この端末以外からでも戻せます）。
               </p>
               <button type="button" className="button button-sm" onClick={handleBackup} disabled={busy} data-testid="cloud-backup">
                 {backedUp ? 'バックアップを保存しました（もう一度保存）' : 'この端末のデータをバックアップ'}

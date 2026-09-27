@@ -2388,3 +2388,37 @@ textarea {
   width: 20px;
   height: 20px;
 }
+
+/* 第13回: どちらからどちらへ、を分かりやすく */
+
+.cloud-direction {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.cloud-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--good-soft);
+  font-weight: 700;
+}
+
+.cloud-flow .cloud-from {
+  color: var(--good);
+}
+
+.cloud-flow .cloud-to {
+  color: var(--warn);
+}
+
+.cloud-flow .cloud-arrow {
+  font-size: 1.2rem;
+  opacity: 0.7;
+}
