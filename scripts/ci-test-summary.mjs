@@ -1,20 +1,38 @@
-// 画面テストの結果を、GitHub Actions の「ジョブ要約」に書き出す。
+// 画面テストの結果を、GitHub Actions の「ジョブ要約」と「注釈」に書き出す。
 //   node scripts/ci-test-summary.mjs [結果のJSON]
 //
-// ログを開けなくても、どのテストが失敗したのかを要約から確認できるようにするためのもの。
-// 秘密情報を載せないよう、出すのはテスト名とエラーの先頭1行だけにする。
+// 管理者権限がないとログを開けないため、失敗したテスト名・場所・メッセージを注釈として出し、
+// 実行画面から原因を確認できるようにするためのもの。
+// 秘密情報を載せないよう、出すのはテスト名・場所・エラーメッセージだけにする。
 
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 
 const file = process.argv[2] ?? 'test-results/results.json';
 const out = process.env.GITHUB_STEP_SUMMARY;
 
-/** 値や個人情報が混ざらないよう、短く切って1行にする */
+const ANSI = /\u001b\[[0-9;]*m/g;
+
+/** 1行に切り詰める */
 function oneLine(text, max = 200) {
   return String(text ?? '')
-    .replace(/\u001b\[[0-9;]*m/g, '') // 色の指定を落とす
+    .replace(ANSI, '')
     .split('\n')[0]
     .slice(0, max);
+}
+
+/** 先頭の数行をつなげる（どの操作で止まったかが分かるように） */
+function head(text, count = 8, max = 600) {
+  return String(text ?? '')
+    .replace(ANSI, '')
+    .split('\n')
+    .slice(0, count)
+    .join(' / ')
+    .slice(0, max);
+}
+
+/** GitHub の注釈に載せられる形にする */
+function escape(value) {
+  return String(value).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
 }
 
 function collect(suite, path = []) {
@@ -23,20 +41,14 @@ function collect(suite, path = []) {
   for (const spec of suite.specs ?? []) {
     for (const test of spec.tests ?? []) {
       const last = test.results?.[test.results.length - 1];
+      const location = last?.error?.location ?? spec.location;
       results.push({
         title: [...title, spec.title].join(' › '),
         status: last?.status ?? 'unknown',
         expected: test.expectedStatus ?? 'passed',
         error: oneLine(last?.error?.message),
-        // どの行で止まったのかが分かるよう、メッセージの先頭数行と場所も残す
-        detail: String(last?.error?.message ?? '')
-          .replace(/\[[0-9;]*m/g, '')
-          .split('
-')
-          .slice(0, 8)
-          .join(' / ')
-          .slice(0, 600),
-        where: last?.error?.location ? `${last.error.location.file}:${last.error.location.line}` : '',
+        detail: head(last?.error?.message),
+        where: location ? `${location.file}:${location.line}` : '',
         duration: last?.duration ?? 0,
       });
     }
@@ -48,6 +60,7 @@ function collect(suite, path = []) {
 const lines = [];
 if (!existsSync(file)) {
   lines.push('## 画面テストの結果', '', '結果ファイルがありません（途中で打ち切られた可能性があります）。');
+  console.log('::warning title=画面テストの結果::結果ファイルがありません（途中で打ち切られた可能性があります）');
 } else {
   const report = JSON.parse(readFileSync(file, 'utf-8'));
   const all = (report.suites ?? []).flatMap((s) => collect(s));
@@ -62,13 +75,12 @@ if (!existsSync(file)) {
   if (bad.length > 0) {
     lines.push('### 失敗したテスト', '');
     for (const t of bad.slice(0, 30)) {
-      lines.push(`- **${t.title}**（${t.status}）`);
-      if (t.error) lines.push(`  - ${t.error}`);
+      lines.push(`- **${t.title}**（${t.status}）${t.where ? ` — ${t.where}` : ''}`);
+      if (t.detail) lines.push(`  - ${t.detail}`);
     }
     lines.push('');
 
     // 実行画面の注釈としても出す（ログを開かなくても一覧で確認できる）
-    const escape = (v) => String(v).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
     for (const t of bad.slice(0, 8)) {
       const body = [t.where && `場所 ${t.where}`, t.detail || t.error || '（メッセージなし）'].filter(Boolean).join(' — ');
       console.log(`::error title=${escape(`${t.status}: ${t.title}`.slice(0, 120))}::${escape(body)}`);
@@ -78,13 +90,10 @@ if (!existsSync(file)) {
   lines.push('### 時間のかかったテスト', '');
   for (const t of slow) lines.push(`- ${Math.round(t.duration / 1000)}秒 — ${t.title}`);
 
-  // 時間のかかったテストも注釈に出す（固まっている箇所の手がかりになる）
-  const escapeNotice = (v) => String(v).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
-  console.log(
-    `::notice title=画面テストの結果::${escapeNotice(
-      `実行 ${all.length} 件 / 失敗 ${bad.length} 件。時間のかかった順: ` + slow.map((t) => `${Math.round(t.duration / 1000)}秒 ${t.title}`).join(' | '),
-    ).slice(0, 900)}`,
-  );
+  const summary = `実行 ${all.length} 件 / 失敗 ${bad.length} 件。時間のかかった順: ${slow
+    .map((t) => `${Math.round(t.duration / 1000)}秒 ${t.title}`)
+    .join(' | ')}`;
+  console.log(`::notice title=画面テストの結果::${escape(summary).slice(0, 900)}`);
 }
 
 const text = lines.join('\n');
