@@ -25,8 +25,8 @@ export default defineConfig({
   workers: isCI ? 2 : undefined,
   // test.only の消し忘れを CI で検出する
   forbidOnly: isCI,
-  // CI で何かが固まっても、20分で打ち切って結果を出す（原因の切り分けができるように）
-  ...(isCI ? { globalTimeout: 20 * 60 * 1000 } : {}),
+  // CI で何かが固まっても、10分で打ち切って結果を出す（ジョブ側の上限20分より短くして、要約を必ず残す）
+  ...(isCI ? { globalTimeout: 10 * 60 * 1000 } : {}),
   use: {
     baseURL: 'http://localhost:5373',
     ...(isCI ? {} : { channel: 'msedge' }),
