@@ -82,6 +82,12 @@ function pwaPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [react(), pwaPlugin()],
+  // 開発サーバーの起動時にまとめて前処理しておく。
+  // Supabase のライブラリは「設定があるときだけ」動的に読み込むため、
+  // 指定しないと初回のログイン時にまとめて変換が走り、非力な環境では数十秒かかることがある。
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-dom/client', 'react-router-dom', '@supabase/supabase-js'],
+  },
   server: { port: 5173, strictPort: true },
   preview: { port: 4273, strictPort: true },
   test: {

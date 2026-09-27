@@ -21,6 +21,8 @@ export default defineConfig({
   reporter: isCI ? [['list'], ['json', { outputFile: 'test-results/results.json' }]] : 'list',
   // CI では一時的な遅延で落ちることがあるので、2回まで自動で再試行する
   retries: isCI ? 2 : 0,
+  // CI のマシンは非力で、初回の読み込みに時間がかかることがあるため、1件あたりの上限を延ばす
+  timeout: isCI ? 60000 : 30000,
   // CI のマシンは非力なので、同時実行数を抑えて安定させる
   workers: isCI ? 2 : undefined,
   // test.only の消し忘れを CI で検出する
