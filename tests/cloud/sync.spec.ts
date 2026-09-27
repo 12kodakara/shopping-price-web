@@ -256,6 +256,14 @@ async function signIn(page: Page) {
 
 const restCalls = (mock: Mock) => mock.calls.filter((c) => c.path.includes('/rest/v1/'));
 
+/** 「内容が置き換わることを理解しました」にチェックを入れる */
+async function tickConfirm(page: Page) {
+  const box = page.getByTestId('cloud-confirm');
+  await box.waitFor({ state: 'visible' });
+  await box.evaluate((node) => (node as HTMLInputElement).click());
+  await expect(box).toBeChecked();
+}
+
 /**
  * クラウド操作のボタンを押す。
  * この欄は画面の下の方にあるため、先に画面内へ移動させてから押す
@@ -264,8 +272,10 @@ const restCalls = (mock: Mock) => mock.calls.filter((c) => c.path.includes('/res
 async function tap(page: Page, testId: string) {
   const button = page.getByTestId(testId);
   await button.waitFor({ state: 'visible' });
-  await button.evaluate((node) => node.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior }));
-  await button.click();
+  await expect(button, `${testId} が押せる状態でない`).toBeEnabled();
+  // 画面内への自動スクロールを待たずに、ブラウザの中で直接押す。
+  // （実際の指でのタップ・マウス操作は「PC・スマホ」のテストで確認している）
+  await button.evaluate((node) => (node as HTMLElement).click());
 }
 
 /**
@@ -338,8 +348,7 @@ test.describe('クラウドとのデータのやりとり', () => {
     await expect(page.getByTestId('cloud-plan')).toContainText('クラウドに別の内容のデータがあります');
     await expect(page.getByTestId('cloud-run')).toBeDisabled();
 
-    await page.getByTestId('cloud-confirm').scrollIntoViewIfNeeded();
-    await page.getByTestId('cloud-confirm').check();
+    await tickConfirm(page);
     await expect(page.getByTestId('cloud-run')).toBeEnabled();
     await tap(page, 'cloud-run');
     await expect(page.getByTestId('cloud-message')).toContainText('クラウドへ保存しました');
@@ -386,8 +395,7 @@ test.describe('クラウドとのデータのやりとり', () => {
 
     // バックアップも確認もまだなので実行できない
     await expect(page.getByTestId('cloud-run')).toBeDisabled();
-    await page.getByTestId('cloud-confirm').scrollIntoViewIfNeeded();
-    await page.getByTestId('cloud-confirm').check();
+    await tickConfirm(page);
     await expect(page.getByTestId('cloud-run')).toBeDisabled();
 
     const download = page.waitForEvent('download');
@@ -579,8 +587,7 @@ test.describe('クラウドとのデータのやりとり', () => {
     await mockSupabase(page, { cloud: cloudFixture() });
     await signIn(page);
     await tap(page, 'cloud-download');
-    await page.getByTestId('cloud-confirm').scrollIntoViewIfNeeded();
-    await page.getByTestId('cloud-confirm').check();
+    await tickConfirm(page);
     await saveBackup(page);
     await tap(page, 'cloud-run');
     await expect(page.getByTestId('cloud-message')).toContainText('この端末へ取り込みました');
@@ -616,8 +623,7 @@ test.describe('クラウドとのデータのやりとり', () => {
       // 件数の確認・プレビューまでは進める
       await tap(page, 'cloud-download');
       await expect(page.getByTestId('cloud-preview')).toBeVisible();
-      await page.getByTestId('cloud-confirm').scrollIntoViewIfNeeded();
-    await page.getByTestId('cloud-confirm').check();
+      await tickConfirm(page);
       await saveBackup(page);
 
       // 実行すると取得の途中で失敗する
@@ -648,8 +654,7 @@ test.describe('クラウドとのデータのやりとり', () => {
     const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
 
     await tap(page, 'cloud-download');
-    await page.getByTestId('cloud-confirm').scrollIntoViewIfNeeded();
-    await page.getByTestId('cloud-confirm').check();
+    await tickConfirm(page);
     await saveBackup(page);
     await tap(page, 'cloud-run');
 
@@ -666,8 +671,7 @@ test.describe('クラウドとのデータのやりとり', () => {
     const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
 
     await tap(page, 'cloud-download');
-    await page.getByTestId('cloud-confirm').scrollIntoViewIfNeeded();
-    await page.getByTestId('cloud-confirm').check();
+    await tickConfirm(page);
     await saveBackup(page);
     await tap(page, 'cloud-run');
 
@@ -679,8 +683,7 @@ test.describe('クラウドとのデータのやりとり', () => {
     await mockSupabase(page, { cloud: cloudFixture() });
     await signIn(page);
     await tap(page, 'cloud-download');
-    await page.getByTestId('cloud-confirm').scrollIntoViewIfNeeded();
-    await page.getByTestId('cloud-confirm').check();
+    await tickConfirm(page);
     await saveBackup(page);
     await tap(page, 'cloud-run');
     await expect(page.getByTestId('cloud-message')).toContainText('この端末へ取り込みました');
