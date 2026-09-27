@@ -151,8 +151,7 @@ function CloudDataPanel() {
   /** クラウドの件数を読み直す。失敗したら理由を表示するだけで、端末のデータは触らない */
   async function refresh(): Promise<DataCounts | null> {
     setBusy(true);
-    const result = await getCloudStatus();
-    setBusy(false);
+    const result = await getCloudStatus().finally(() => setBusy(false));
     if (!result.ok) {
       setCloud(null);
       setMessage({ kind: 'error', text: result.error });
@@ -194,8 +193,7 @@ function CloudDataPanel() {
   async function runUpload() {
     if (!data) return;
     setBusy(true);
-    const result = await replaceCloudData(data);
-    setBusy(false);
+    const result = await replaceCloudData(data).finally(() => setBusy(false));
     if (!result.ok) {
       setMessage({ kind: 'error', text: result.error });
       return;
@@ -211,7 +209,7 @@ function CloudDataPanel() {
   /** クラウドのデータをこの端末へ取り込む（置き換える前に必ずバックアップを保存してもらう） */
   async function runDownload() {
     setBusy(true);
-    const fetched = await getCloudData();
+    const fetched = await getCloudData().catch(() => ({ ok: false, error: 'クラウドのデータを取得できませんでした' }) as const);
     if (!fetched.ok) {
       setBusy(false);
       setMessage({ kind: 'error', text: fetched.error });
@@ -244,8 +242,7 @@ function CloudDataPanel() {
   async function checkIdentical() {
     if (!data) return;
     setBusy(true);
-    const fetched = await getCloudData();
-    setBusy(false);
+    const fetched = await getCloudData().finally(() => setBusy(false));
     if (!fetched.ok) {
       setMessage({ kind: 'error', text: fetched.error });
       return;

@@ -82,7 +82,29 @@ describe('エラーの説明', () => {
     expect(describeCloudError({ message: 'Failed to fetch' }, 'x')).toContain('この端末のデータはそのままです');
   });
 
-  it('分からないときは、もとの説明を添えて返す', () => {
+  it('期限切れ（401）はログインし直しを促す', () => {
+    expect(describeCloudError({ message: '' }, 'x', 401)).toContain('ログインし直して');
+  });
+
+  it('権限なし（403）はアクセスが許可されなかったことを伝える', () => {
+    expect(describeCloudError({ message: '' }, 'x', 403)).toContain('許可されませんでした');
+  });
+
+  it('時間切れは、応答が無かったことを伝える', () => {
+    expect(describeCloudError({ message: 'The operation was aborted due to timeout' }, 'x')).toContain('応答がありませんでした');
+  });
+
+  it('★本文が空の応答でも、HTTPの番号を手がかりとして添える', () => {
+    // 以前は HEAD で件数を取っていたため本文が空になり、原因がまったく分からなかった
+    expect(describeCloudError({ message: '' }, 'クラウドの件数を取得できませんでした', 404)).toBe(
+      'クラウドの件数を取得できませんでした（HTTP 404）',
+    );
+  });
+
+  it('分からないときは、番号ともとの説明を添えて返す', () => {
     expect(describeCloudError({ message: 'something odd' }, '保存できませんでした')).toBe('保存できませんでした（something odd）');
+    expect(describeCloudError({ message: 'something odd', code: 'PGRST999' }, '保存できませんでした', 400)).toBe(
+      '保存できませんでした（HTTP 400 / コード PGRST999 / something odd）',
+    );
   });
 });

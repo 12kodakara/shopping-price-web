@@ -71,6 +71,10 @@ interface MockOptions {
   cloud?: Db;
   /** 保存（INSERT）を失敗させる */
   failInsert?: boolean;
+  /** 読み取り（件数・取得）を失敗させる。本文なしの応答も再現できる */
+  failSelect?: { status: number; body?: unknown };
+  /** 件数のヘッダー（content-range）を返さない */
+  hideCountHeader?: boolean;
 }
 
 interface Mock {
@@ -131,17 +135,28 @@ async function mockSupabase(page: Page, options: MockOptions = {}): Promise<Mock
       const rows = db[table] ?? [];
 
       if (method === 'HEAD' || method === 'GET') {
+        if (options.failSelect) {
+          await route.fulfill({
+            status: options.failSelect.status,
+            headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' },
+            // 本文が空の応答（HEAD のときに起きていた状態）も再現する
+            body: options.failSelect.body === undefined ? '' : JSON.stringify(options.failSelect.body),
+          });
+          return;
+        }
         const filtered = url.searchParams.get('purchased') === 'eq.true' ? rows.filter((r) => r.purchased === true) : rows;
+        const limit = Number(url.searchParams.get('limit') ?? '');
+        const body = Number.isFinite(limit) && limit > 0 ? filtered.slice(0, limit) : filtered;
         await route.fulfill({
           status: 200,
           headers: {
             'content-type': 'application/json',
-            'content-range': `*/${filtered.length}`,
+            ...(options.hideCountHeader ? {} : { 'content-range': `*/${filtered.length}` }),
             // 別オリジンからは content-range が既定で読めないため、読めるように明示する（本物の Supabase も同じ設定）
             'access-control-allow-origin': '*',
             'access-control-expose-headers': 'content-range',
           },
-          body: method === 'HEAD' ? '' : JSON.stringify(filtered),
+          body: method === 'HEAD' ? '' : JSON.stringify(body),
         });
         return;
       }
@@ -378,6 +393,70 @@ test.describe('クラウドとのデータのやりとり', () => {
 
     await page.goto('/products');
     await expect(page.getByRole('main')).toContainText('サランラップ');
+  });
+
+  test('クラウドが空でも、エラーにならず0件として表示される', async ({ page }) => {
+    await mockSupabase(page);
+    await signIn(page);
+    await page.getByTestId('cloud-check').click();
+
+    const counts = page.getByTestId('cloud-counts');
+    for (const label of ['商品', '店舗', '価格履歴', '買い物リスト']) {
+      await expect(counts.getByRole('row', { name: new RegExp(label) })).toContainText('0件');
+    }
+    await expect(page.getByTestId('cloud-message')).toHaveCount(0);
+    await expect(page.getByTestId('cloud-checked-at')).toContainText('クラウドの確認：');
+  });
+
+  test('★取得に失敗したときは、本文が空の応答でも原因の手がかりを表示する', async ({ page }) => {
+    // 以前は HEAD で件数を取っていたため、エラーの本文が空になり理由が分からなかった
+    await mockSupabase(page, { failSelect: { status: 404 } });
+    await signIn(page);
+    await page.getByTestId('cloud-check').click();
+    const message = page.getByTestId('cloud-message');
+    await expect(message).toContainText('クラウドの件数を取得できませんでした');
+    // 調査の手がかり（HTTPの番号）が添えられる
+    await expect(message).toContainText(/HTTP \d{3}/);
+    // 0件と誤表示しない
+    await expect(page.getByTestId('cloud-counts')).toContainText('—');
+  });
+
+  test('テーブルが無いときは、準備が必要であることを表示する', async ({ page }) => {
+    await mockSupabase(page, {
+      failSelect: { status: 404, body: { code: 'PGRST205', message: "Could not find the table 'public.products' in the schema cache" } },
+    });
+    await signIn(page);
+    await page.getByTestId('cloud-check').click();
+    await expect(page.getByTestId('cloud-message')).toContainText('テーブルの作成');
+  });
+
+  test('権限が無いときは、ログインし直しを促す', async ({ page }) => {
+    await mockSupabase(page, { failSelect: { status: 401, body: { message: 'JWT expired' } } });
+    await signIn(page);
+    await page.getByTestId('cloud-check').click();
+    await expect(page.getByTestId('cloud-message')).toContainText('ログイン');
+  });
+
+  test('件数のヘッダーが読めないときは、0件と誤表示せずエラーにする', async ({ page }) => {
+    await mockSupabase(page, { cloud: cloudFixture(), hideCountHeader: true });
+    await signIn(page);
+    await page.getByTestId('cloud-check').click();
+    await expect(page.getByTestId('cloud-message')).toContainText('件数');
+    await expect(page.getByTestId('cloud-counts')).toContainText('—');
+  });
+
+  test('通信できないときは、その旨を表示して端末のデータは変えない', async ({ page }) => {
+    await mockSupabase(page);
+    await signIn(page);
+    const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
+    await page.route('**/supabase-mock/rest/v1/**', (route) => route.abort('failed'));
+
+    await page.getByTestId('cloud-check').click();
+    // 通信エラーはライブラリ側が3回まで自動で再試行する（1+2+4秒）ため、少し長めに待つ
+    await expect(page.getByTestId('cloud-message')).toContainText(/通信できませんでした|応答がありませんでした/, { timeout: 20000 });
+    // 画面が「確認中…」のまま固まらない
+    await expect(page.getByTestId('cloud-check')).toBeEnabled();
+    expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
   });
 
   test('未ログインではクラウドのデータに一切アクセスしない', async ({ page }) => {

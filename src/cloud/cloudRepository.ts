@@ -25,6 +25,13 @@ export type CloudResult<T> = { ok: true; value: T } | { ok: false; error: string
 /** 一度に送る行数。大量データでもリクエストが大きくなりすぎないように分割する */
 const CHUNK = 500;
 
+/**
+ * 読み取りの待ち時間の上限。
+ * 応答が返らないとき（電波が弱い・接続が途中で止まる など）に画面が待ち続けないようにする。
+ * ※ライブラリ側が通信エラーと 503（クラウド側の準備中）を自動で3回まで再試行するため、少し長めにとる。
+ */
+const READ_TIMEOUT_MS = 20000;
+
 type Client = NonNullable<Awaited<ReturnType<typeof getSupabase>>>;
 
 interface PostgrestLikeError {
@@ -34,25 +41,51 @@ interface PostgrestLikeError {
   hint?: string;
 }
 
-/** Supabase のエラーを、利用者に見せる短い日本語にする（値や内部情報は出さない） */
-export function describeCloudError(error: PostgrestLikeError | null, fallback: string): string {
+/**
+ * Supabase のエラーを、利用者に見せる短い日本語にする。
+ *
+ * 原因が分かるように、最後は「HTTP 状態番号 / エラーコード」を添える。
+ * ここに出すのは仕組み上の番号だけで、キー・トークン・メールアドレス・データの中身は一切含めない。
+ */
+export function describeCloudError(error: PostgrestLikeError | null, fallback: string, status?: number): string {
   const message = error?.message ?? '';
   const code = error?.code ?? '';
-  // テーブルがまだ無い（migration 未適用）
+
+  // テーブルがまだ無い（migration 未適用、または PostgREST の一覧が古い）
   if (code === 'PGRST205' || code === '42P01' || /does not exist|could not find the table/i.test(message)) {
     return 'クラウド側の準備（テーブルの作成）がまだ済んでいません。supabase/README.md の手順で SQL を実行してください。';
   }
-  // RLS により拒否された
-  if (code === '42501' || /row-level security|permission denied/i.test(message)) {
+  // 認証の期限切れ・未ログイン扱い
+  if (status === 401 || code === 'PGRST301' || /jwt|token is expired|invalid claim/i.test(message)) {
+    return 'ログインの有効期限が切れています。いったんログアウトして、ログインし直してください。';
+  }
+  // RLS・権限により拒否された
+  if (status === 403 || code === '42501' || /row-level security|permission denied/i.test(message)) {
     return 'クラウドのデータへのアクセスが許可されませんでした。ログインし直してからもう一度お試しください。';
   }
-  if (/jwt|token is expired|invalid claim/i.test(message)) {
-    return 'ログインの有効期限が切れています。ログインし直してください。';
+  if (/abort|timeout|timed out|signal is aborted/i.test(message)) {
+    return '時間内にクラウドから応答がありませんでした。通信状況を確認して、もう一度お試しください（この端末のデータはそのままです）。';
   }
-  if (/fetch|network|failed to fetch/i.test(message)) {
+  if (/fetch|network|failed to fetch|load failed/i.test(message)) {
     return '通信できませんでした。電波の良い場所でもう一度お試しください（この端末のデータはそのままです）。';
   }
-  return message ? `${fallback}（${message}）` : fallback;
+
+  // ここまでで分からないとき。調査の手がかりになる番号だけを添える
+  const hints = [status ? `HTTP ${status}` : '', code ? `コード ${code}` : '', message].filter(Boolean);
+  return hints.length > 0 ? `${fallback}（${hints.join(' / ')}）` : fallback;
+}
+
+/**
+ * 通信そのものが失敗した（オフライン等）ときは例外が飛ぶことがある。
+ * 画面側で扱えるように、必ず結果（ok:false）に変える。
+ */
+async function guard<T>(fallback: string, run: () => Promise<CloudResult<T>>): Promise<CloudResult<T>> {
+  try {
+    return await run();
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: describeCloudError({ message }, fallback) };
+  }
 }
 
 /** ログイン中のクライアントと利用者IDを取り出す */
@@ -66,12 +99,27 @@ async function requireSession(): Promise<CloudResult<{ client: Client; userId: s
   return { ok: true, value: { client, userId } };
 }
 
-/** 件数だけを数える（本文は受け取らない）。onlyPurchased のときは購入済みだけ */
+/**
+ * 件数を数える。
+ *
+ * HEAD（本文なし）では応答の本文が空になり、失敗したときに Supabase が返す理由
+ * （テーブルが無い・権限が無い など）が読めなくなるため、GET で1行だけ取って数える。
+ * 取り出す列は user_id（＝ログイン中の本人のID）だけなので、中身のデータは受け取らない。
+ */
 async function countOf(client: Client, table: string, onlyPurchased = false): Promise<CloudResult<number>> {
-  const base = client.from(table).select('*', { count: 'exact', head: true });
-  const { count, error } = await (onlyPurchased ? base.eq('purchased', true) : base);
-  if (error) return { ok: false, error: describeCloudError(error, 'クラウドの件数を取得できませんでした') };
-  return { ok: true, value: count ?? 0 };
+  const base = client.from(table).select('user_id', { count: 'exact' }).limit(1).abortSignal(AbortSignal.timeout(READ_TIMEOUT_MS));
+  const { count, error, status } = await (onlyPurchased ? base.eq('purchased', true) : base);
+  if (error) return { ok: false, error: describeCloudError(error, 'クラウドの件数を取得できませんでした', status) };
+  // 件数のヘッダー（content-range）が読めなかった場合。0件と誤って表示しないようエラーにする
+  if (count === null || count === undefined) {
+    return {
+      ok: false,
+      error:
+        'クラウドの件数を取得できませんでした（応答に件数の情報がありません / HTTP ' +
+        `${status ?? '不明'}）。クラウド側の準備（テーブルの作成）が終わっていないか、通信が遮られている可能性があります。`,
+    };
+  }
+  return { ok: true, value: count };
 }
 
 /** クラウド側の状態（件数と、最後に保存した日時） */
@@ -83,6 +131,10 @@ export interface CloudStatus {
 
 /** クラウド側の件数と最終保存日時（本人の分だけ。RLS により他人の行は数にも入らない） */
 export async function getCloudStatus(): Promise<CloudResult<CloudStatus>> {
+  return guard('クラウドの状態を取得できませんでした', () => getCloudStatusInner());
+}
+
+async function getCloudStatusInner(): Promise<CloudResult<CloudStatus>> {
   const session = await requireSession();
   if (!session.ok) return session;
   const { client } = session.value;
@@ -99,8 +151,8 @@ export async function getCloudStatus(): Promise<CloudResult<CloudStatus>> {
   if (!purchased.ok) return purchased;
 
   // 最後に保存した日時（設定の行。まだ無ければ null）
-  const { data: settings, error: settingsError } = await client.from('user_settings').select('last_synced_at').limit(1);
-  if (settingsError) return { ok: false, error: describeCloudError(settingsError, 'クラウドの状態を取得できませんでした') };
+  const { data: settings, error: settingsError, status: settingsStatus } = await client.from('user_settings').select('last_synced_at').limit(1);
+  if (settingsError) return { ok: false, error: describeCloudError(settingsError, 'クラウドの状態を取得できませんでした', settingsStatus) };
   const lastSyncedAt = (settings?.[0] as { last_synced_at?: string | null } | undefined)?.last_synced_at ?? null;
 
   return {
@@ -120,6 +172,10 @@ export async function getCloudStatus(): Promise<CloudResult<CloudStatus>> {
 
 /** クラウド側のデータを取り出して、端末の保存データと同じ形にする（端末のデータは変更しない） */
 export async function getCloudData(): Promise<CloudResult<AppData>> {
+  return guard('クラウドのデータを取得できませんでした', () => getCloudDataInner());
+}
+
+async function getCloudDataInner(): Promise<CloudResult<AppData>> {
   const session = await requireSession();
   if (!session.ok) return session;
   const { client } = session.value;
@@ -127,8 +183,8 @@ export async function getCloudData(): Promise<CloudResult<AppData>> {
   const tables = ['products', 'stores', 'price_records', 'shopping_items', 'user_settings'] as const;
   const results: Record<string, unknown[]> = {};
   for (const table of tables) {
-    const { data, error } = await client.from(table).select('*');
-    if (error) return { ok: false, error: describeCloudError(error, 'クラウドのデータを取得できませんでした') };
+    const { data, error, status } = await client.from(table).select('*').abortSignal(AbortSignal.timeout(READ_TIMEOUT_MS));
+    if (error) return { ok: false, error: describeCloudError(error, 'クラウドのデータを取得できませんでした', status) };
     results[table] = data ?? [];
   }
 
@@ -150,6 +206,10 @@ export async function getCloudData(): Promise<CloudResult<AppData>> {
  * 送る前に検証し、送信中に失敗しても端末のデータには一切触れない。
  */
 export async function replaceCloudData(data: AppData): Promise<CloudResult<DataCounts>> {
+  return guard('クラウドへ保存できませんでした', () => replaceCloudDataInner(data));
+}
+
+async function replaceCloudDataInner(data: AppData): Promise<CloudResult<DataCounts>> {
   const checked = loadAppData(data);
   if (!checked.ok) return { ok: false, error: `この端末のデータを確認できませんでした（${checked.reason}）` };
 
@@ -160,8 +220,8 @@ export async function replaceCloudData(data: AppData): Promise<CloudResult<DataC
 
   // 消す順番は、参照している側から（価格記録・買い物リスト → 商品・店舗）
   for (const table of ['price_records', 'shopping_items', 'products', 'stores'] as const) {
-    const { error } = await client.from(table).delete().eq('user_id', userId);
-    if (error) return { ok: false, error: describeCloudError(error, 'クラウドの古いデータを整理できませんでした') };
+    const { error, status } = await client.from(table).delete().eq('user_id', userId);
+    if (error) return { ok: false, error: describeCloudError(error, 'クラウドの古いデータを整理できませんでした', status) };
   }
 
   // 入れる順番は逆（商品・店舗 → 価格記録・買い物リスト）
@@ -173,15 +233,15 @@ export async function replaceCloudData(data: AppData): Promise<CloudResult<DataC
   ];
   for (const [table, all] of inserts) {
     for (let i = 0; i < all.length; i += CHUNK) {
-      const { error } = await client.from(table).insert(all.slice(i, i + CHUNK));
-      if (error) return { ok: false, error: describeCloudError(error, 'クラウドへ保存できませんでした') };
+      const { error, status } = await client.from(table).insert(all.slice(i, i + CHUNK));
+      if (error) return { ok: false, error: describeCloudError(error, 'クラウドへ保存できませんでした', status) };
     }
   }
 
-  const { error: settingsError } = await client
+  const { error: settingsError, status: settingsStatus } = await client
     .from('user_settings')
     .upsert({ ...rows.settings, last_synced_at: new Date().toISOString() }, { onConflict: 'user_id' });
-  if (settingsError) return { ok: false, error: describeCloudError(settingsError, 'クラウドへ保存できませんでした') };
+  if (settingsError) return { ok: false, error: describeCloudError(settingsError, 'クラウドへ保存できませんでした', settingsStatus) };
 
   return { ok: true, value: countsOf(checked.data) };
 }
