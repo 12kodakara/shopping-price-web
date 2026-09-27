@@ -57,10 +57,24 @@ if (!existsSync(file)) {
       if (t.error) lines.push(`  - ${t.error}`);
     }
     lines.push('');
+
+    // 実行画面の注釈としても出す（ログを開かなくても一覧で確認できる）
+    const escape = (v) => String(v).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+    for (const t of bad.slice(0, 8)) {
+      console.log(`::error title=${escape(`${t.status}: ${t.title}`.slice(0, 120))}::${escape(t.error || '（メッセージなし）')}`);
+    }
   }
 
   lines.push('### 時間のかかったテスト', '');
   for (const t of slow) lines.push(`- ${Math.round(t.duration / 1000)}秒 — ${t.title}`);
+
+  // 時間のかかったテストも注釈に出す（固まっている箇所の手がかりになる）
+  const escapeNotice = (v) => String(v).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+  console.log(
+    `::notice title=画面テストの結果::${escapeNotice(
+      `実行 ${all.length} 件 / 失敗 ${bad.length} 件。時間のかかった順: ` + slow.map((t) => `${Math.round(t.duration / 1000)}秒 ${t.title}`).join(' | '),
+    ).slice(0, 900)}`,
+  );
 }
 
 const text = lines.join('\n');
