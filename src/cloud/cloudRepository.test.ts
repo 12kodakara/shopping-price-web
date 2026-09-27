@@ -74,8 +74,15 @@ describe('エラーの説明', () => {
     expect(describeCloudError({ code: 'PGRST205', message: "Could not find the table 'public.products'" }, 'x')).toContain('テーブルの作成');
   });
 
+  it('★権限（GRANT）が無いときは、SQL の実行が必要だと伝える', () => {
+    // 本番で件数取得が失敗した原因。テーブルはあるが authenticated に権限が無い状態
+    const text = describeCloudError({ code: '42501', message: 'permission denied for table products' }, 'x', 401);
+    expect(text).toContain('権限設定');
+    expect(text).toContain('grants');
+  });
+
   it('RLS に拒否されたときは、ログインし直しを促す', () => {
-    expect(describeCloudError({ code: '42501', message: 'new row violates row-level security policy' }, 'x')).toContain('許可されませんでした');
+    expect(describeCloudError({ message: 'new row violates row-level security policy' }, 'x', 403)).toContain('許可されませんでした');
   });
 
   it('通信できないときは、その旨と端末のデータが無事であることを伝える', () => {

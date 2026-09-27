@@ -55,12 +55,16 @@ export function describeCloudError(error: PostgrestLikeError | null, fallback: s
   if (code === 'PGRST205' || code === '42P01' || /does not exist|could not find the table/i.test(message)) {
     return 'クラウド側の準備（テーブルの作成）がまだ済んでいません。supabase/README.md の手順で SQL を実行してください。';
   }
-  // 認証の期限切れ・未ログイン扱い
+  // テーブルを使う権限（GRANT）が付いていない。SQL の実行漏れで起きる
+  if (code === '42501' || /permission denied/i.test(message)) {
+    return 'クラウド側の権限設定がまだ適用されていません。supabase/README.md の手順で supabase/migrations/ の SQL（20260927000001_grants.sql を含む）を実行してください。';
+  }
+  // 認証の期限切れ
   if (status === 401 || code === 'PGRST301' || /jwt|token is expired|invalid claim/i.test(message)) {
     return 'ログインの有効期限が切れています。いったんログアウトして、ログインし直してください。';
   }
-  // RLS・権限により拒否された
-  if (status === 403 || code === '42501' || /row-level security|permission denied/i.test(message)) {
+  // RLS により拒否された
+  if (status === 403 || /row-level security/i.test(message)) {
     return 'クラウドのデータへのアクセスが許可されませんでした。ログインし直してからもう一度お試しください。';
   }
   if (/abort|timeout|timed out|signal is aborted/i.test(message)) {

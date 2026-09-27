@@ -430,7 +430,18 @@ test.describe('クラウドとのデータのやりとり', () => {
     await expect(page.getByTestId('cloud-message')).toContainText('テーブルの作成');
   });
 
-  test('権限が無いときは、ログインし直しを促す', async ({ page }) => {
+  test('★テーブルの権限が無いときは、実行すべきSQLを案内する', async ({ page }) => {
+    await mockSupabase(page, { failSelect: { status: 401, body: { code: '42501', message: 'permission denied for table products' } } });
+    await signIn(page);
+    await page.getByTestId('cloud-check').click();
+    const message = page.getByTestId('cloud-message');
+    await expect(message).toContainText('権限設定');
+    await expect(message).toContainText('grants');
+    // 端末のデータは触らない
+    await expect(page.getByTestId('cloud-counts')).toContainText('—');
+  });
+
+  test('ログインの期限切れのときは、ログインし直しを促す', async ({ page }) => {
     await mockSupabase(page, { failSelect: { status: 401, body: { message: 'JWT expired' } } });
     await signIn(page);
     await page.getByTestId('cloud-check').click();

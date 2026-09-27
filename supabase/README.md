@@ -7,8 +7,11 @@
 supabase/
   migrations/
     20260926000001_cloud_sync.sql   … テーブル・制約・RLS（何度実行しても同じ結果）
-  verify-rls.sql                    … RLS が効いているかを確認する SQL
+    20260927000001_grants.sql       … テーブルを使う権限（GRANT）。これが無いと件数取得が 42501 で失敗する
+  verify-rls.sql                    … RLS と権限が正しいかを確認する SQL
 ```
+
+> **番号の小さい順に実行してください。** どちらも何度実行しても同じ結果になります。
 
 ## 適用のしかた（Supabase の画面で行います）
 
@@ -18,6 +21,7 @@ supabase/
 4. `migrations/20260926000001_cloud_sync.sql` の中身を**すべてコピー**して貼り付ける
 5. 右下の **Run**（または Ctrl+Enter）を押す
 6. `Success. No rows returned` と出れば完了
+7. 同じ手順で `migrations/20260927000001_grants.sql` も実行する（**こちらも必須**）
 
 > 何度実行しても同じ結果になります（既にある場合は作り直しません）。
 
@@ -28,6 +32,14 @@ supabase/
 - **Authentication → Policies** で、各テーブルに `_select_own` `_insert_own` `_update_own` `_delete_own` の4つが並ぶ
 
 さらに詳しく確認するときは、SQL Editor で `verify-rls.sql` を実行してください。
+その結果で、`authenticated` に select / insert / update / delete の権限があり、`anon` には無いことも確認できます。
+
+### よくある失敗
+
+| 症状 | 原因 | 直し方 |
+|---|---|---|
+| アプリに「クラウドの件数を取得できませんでした（… コード 42501 …）」と出る | テーブルを使う権限（GRANT）が付いていない | `20260927000001_grants.sql` を実行する |
+| 「クラウド側の準備（テーブルの作成）がまだ済んでいません」と出る | テーブルが無い／PostgREST の一覧が古い | `20260926000001_cloud_sync.sql` を実行する |
 
 ## 使うキーについて
 

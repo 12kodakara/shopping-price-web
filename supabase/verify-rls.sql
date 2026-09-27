@@ -45,3 +45,17 @@ order by tc.table_name;
 select rolname as role, has_table_privilege(rolname, 'public.products', 'select') as can_select_products
 from pg_roles
 where rolname in ('anon', 'authenticated');
+
+-- ⑤ テーブルを使う権限（GRANT）
+--    authenticated に select/insert/update/delete があり、anon には無いのが正しい状態です。
+--    権限が無いと、RLS 以前の段階で permission denied（42501）になります。
+select
+  table_name,
+  grantee,
+  string_agg(privilege_type, ', ' order by privilege_type) as privileges
+from information_schema.role_table_grants
+where table_schema = 'public'
+  and table_name in ('products', 'stores', 'price_records', 'shopping_items', 'user_settings')
+  and grantee in ('anon', 'authenticated')
+group by table_name, grantee
+order by table_name, grantee;
