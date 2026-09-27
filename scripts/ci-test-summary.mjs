@@ -28,6 +28,15 @@ function collect(suite, path = []) {
         status: last?.status ?? 'unknown',
         expected: test.expectedStatus ?? 'passed',
         error: oneLine(last?.error?.message),
+        // どの行で止まったのかが分かるよう、メッセージの先頭数行と場所も残す
+        detail: String(last?.error?.message ?? '')
+          .replace(/\[[0-9;]*m/g, '')
+          .split('
+')
+          .slice(0, 8)
+          .join(' / ')
+          .slice(0, 600),
+        where: last?.error?.location ? `${last.error.location.file}:${last.error.location.line}` : '',
         duration: last?.duration ?? 0,
       });
     }
@@ -61,7 +70,8 @@ if (!existsSync(file)) {
     // 実行画面の注釈としても出す（ログを開かなくても一覧で確認できる）
     const escape = (v) => String(v).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
     for (const t of bad.slice(0, 8)) {
-      console.log(`::error title=${escape(`${t.status}: ${t.title}`.slice(0, 120))}::${escape(t.error || '（メッセージなし）')}`);
+      const body = [t.where && `場所 ${t.where}`, t.detail || t.error || '（メッセージなし）'].filter(Boolean).join(' — ');
+      console.log(`::error title=${escape(`${t.status}: ${t.title}`.slice(0, 120))}::${escape(body)}`);
     }
   }
 
