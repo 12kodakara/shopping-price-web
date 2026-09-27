@@ -169,6 +169,11 @@ jobs:
           for project in $(echo "${{ matrix.projects }}" | tr ',' ' '); do ARGS="$ARGS --project=$project"; done
           npm run test:e2e -- $ARGS
 
+      - name: 結果を要約に書き出す
+        # ログを開かなくても、どのテストが失敗したかを実行画面の要約で確認できるようにする
+        if: always()
+        run: node scripts/ci-test-summary.mjs
+
       - name: 失敗したときの記録を保存
         # 落ちたテストの操作記録・スクリーンショット。Actions の画面からダウンロードして原因を確認できる。
         if: failure()

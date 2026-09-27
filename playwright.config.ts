@@ -17,7 +17,8 @@ const needs = (...names: string[]) => wanted.length === 0 || names.some((n) => w
 
 export default defineConfig({
   testDir: 'tests/e2e',
-  reporter: 'list',
+  // CI では、ログを開かなくても結果が分かるように JSON も出す（scripts/ci-test-summary.mjs が要約する）
+  reporter: isCI ? [['list'], ['json', { outputFile: 'test-results/results.json' }]] : 'list',
   // CI では一時的な遅延で落ちることがあるので、2回まで自動で再試行する
   retries: isCI ? 2 : 0,
   // CI のマシンは非力なので、同時実行数を抑えて安定させる
@@ -55,13 +56,15 @@ export default defineConfig({
     },
   ],
   webServer: [
-    ...(needs('pc', 'smartphone')
+    // 開発サーバー。PWA のテストにも「開発サーバーでは Service Worker を登録しない」確認があるため必要
+    ...(needs('pc', 'smartphone', 'pwa')
       ? [{ command: 'npm run dev:nocloud', url: 'http://localhost:5373', reuseExistingServer: false, timeout: 120000 }]
       : []),
     ...(needs('cloud')
       ? [{ command: 'npm run dev:cloudmock', url: 'http://localhost:5273', reuseExistingServer: false, timeout: 120000 }]
       : []),
-    ...(needs('pwa')
+    // 本番ビルドの配信。公開先パスのテストにも「別アドレスのデータは見えない」確認があるため必要
+    ...(needs('pwa', 'pwa-pages')
       ? [{ command: 'npm run build:test && npm run preview', url: 'http://localhost:4273', reuseExistingServer: false, timeout: 300000 }]
       : []),
     ...(needs('pwa-pages')
