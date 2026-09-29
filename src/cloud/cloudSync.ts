@@ -103,7 +103,26 @@ export function planDownload(local: DataCounts, cloud: DataCounts, identical = f
   }
 }
 
-/** 取得を実行する前に、端末のデータの退避（バックアップ）が必要か */
+/**
+ * 取得の前に、ファイルへのバックアップを勧めるか（端末にデータがあるとき）。
+ *
+ * 第13回：これは「勧める」だけで、取得の条件にはしない。
+ * 以前は保存するまで実行ボタンが押せず、しかも押せない理由が画面に出なかったため、
+ * 「押しても何も起きない」状態になっていた。ファイル保存はブラウザ（スマホのホーム画面アプリなど）
+ * によってはうまく動かないこともある。端末内の退避（復元前バックアップ）は repository.restore が必ず行い、
+ * 退避できなければ取り込みそのものを中止する。
+ */
 export function backupRequiredBeforeDownload(local: DataCounts): boolean {
   return !isEmptyCounts(local);
+}
+
+/**
+ * 実行ボタンを押せない理由。押せるときは null。
+ * ボタンを押せないときは必ず理由を画面に出し、「押しても反応しない」状態を作らない。
+ */
+export function runBlockedReason(plan: SyncPlan | null, confirmed: boolean, confirmLabel: string): string | null {
+  if (!plan) return 'クラウドの状態を確認できていないため、実行できません。「やめる」を押してから、もう一度お試しください。';
+  if (!plan.allowed) return 'この操作はいま実行できません（理由は上の説明をご覧ください）。';
+  if (plan.needsConfirm && !confirmed) return `実行するには、上の「${confirmLabel}」にチェックを入れてください。`;
+  return null;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DataCounts } from './cloudRows';
-import { backupRequiredBeforeDownload, planDownload, planUpload, situationOf } from './cloudSync';
+import { backupRequiredBeforeDownload, planDownload, planUpload, runBlockedReason, situationOf } from './cloudSync';
 
 const empty: DataCounts = { products: 0, stores: 0, priceRecords: 0, shoppingList: 0, purchased: 0 };
 const some: DataCounts = { products: 5, stores: 9, priceRecords: 5, shoppingList: 2, purchased: 1 };
@@ -75,12 +75,41 @@ describe('クラウドのデータをこの端末へ取得（ダウンロード�
   });
 });
 
-describe('取得前のバックアップ', () => {
-  it('この端末にデータがあるときは必須', () => {
+describe('取得前のファイルへのバックアップ（勧めるだけで、取得の条件にはしない）', () => {
+  it('この端末にデータがあるときは勧める', () => {
     expect(backupRequiredBeforeDownload(some)).toBe(true);
   });
 
   it('この端末が空のときは不要', () => {
     expect(backupRequiredBeforeDownload(empty)).toBe(false);
+  });
+});
+
+// 第13回の不具合：実行ボタンが押せないのに理由が出ず、「押しても何も起きない」状態になっていた
+describe('実行ボタンを押せない理由（第13回）', () => {
+  const label = 'この端末の内容が置き換わることを理解しました';
+  // 実際に不具合が起きた状態：買い物リストだけが違う
+  const local: DataCounts = { products: 5, stores: 9, priceRecords: 10, shoppingList: 0, purchased: 0 };
+  const cloud: DataCounts = { products: 5, stores: 9, priceRecords: 10, shoppingList: 4, purchased: 0 };
+
+  it('★確認のチェックを入れれば、ファイルへのバックアップなしで押せる', () => {
+    const plan = planDownload(local, cloud);
+    expect(plan).toMatchObject({ situation: 'both', allowed: true, needsConfirm: true });
+    expect(runBlockedReason(plan, true, label)).toBeNull();
+  });
+
+  it('チェックを入れていないときは、何をすれば押せるかを示す', () => {
+    const reason = runBlockedReason(planDownload(local, cloud), false, label);
+    expect(reason).toContain(label);
+    expect(reason).toContain('チェックを入れてください');
+  });
+
+  it('実行してはいけない状況では、押せない理由を返す', () => {
+    expect(runBlockedReason(planDownload(some, empty), true, label)).toContain('実行できません');
+    expect(runBlockedReason(null, true, label)).toContain('実行できません');
+  });
+
+  it('確認が不要な状況では、そのまま押せる', () => {
+    expect(runBlockedReason(planDownload(empty, some), false, label)).toBeNull();
   });
 });

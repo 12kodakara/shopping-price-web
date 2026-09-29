@@ -5,6 +5,8 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 // 本物のキー・本物のメールアドレス・本物のデータベースは使わない。
 
 const KEY = 'shopping-price-web/v1';
+/** 復元前バックアップ（「1つ前の状態に戻す」用）の保存先 */
+const UNDO_KEY = 'shopping-price-web/v1/undo';
 const EMAIL = 'test-user@example.com';
 const USER_ID = '11111111-1111-1111-1111-111111111111';
 
@@ -65,6 +67,56 @@ function cloudFixture(): Db {
       { user_id: USER_ID, data_version: 1, counter_product: 2, counter_store: 1, counter_record: 1, last_synced_at: '2026-09-25T01:23:00.000Z' },
     ],
   };
+}
+
+interface LocalData {
+  version: number;
+  products: { id: string; category: string; name: string; unitAmount: number; unit: string; targetUnitPrice: number | null; maker?: string; memo?: string; archived?: boolean }[];
+  stores: { id: string; name: string; type?: string; memo?: string; archived?: boolean }[];
+  priceRecords: { id: string; date: string; productId: string; storeId: string; quantity: number; price: number; sale?: boolean; note?: string; seq: number; createdAt: string; updatedAt?: string }[];
+  counters: { product: number; store: number; record: number };
+}
+
+/** この端末の保存データと同じ内容をクラウドに置く（買い物リストだけは指定したものにする） */
+function fillCloudFromLocal(mock: Mock, local: LocalData, shoppingList: string[], purchased: string[]) {
+  mock.db.products = local.products.map((p) => ({
+    user_id: USER_ID,
+    id: p.id,
+    category: p.category,
+    name: p.name,
+    unit_amount: p.unitAmount,
+    unit: p.unit,
+    target_unit_price: p.targetUnitPrice,
+    maker: p.maker ?? null,
+    memo: p.memo ?? null,
+    archived: p.archived === true,
+  }));
+  mock.db.stores = local.stores.map((s) => ({ user_id: USER_ID, id: s.id, name: s.name, type: s.type ?? null, memo: s.memo ?? null, archived: s.archived === true }));
+  mock.db.price_records = local.priceRecords.map((r) => ({
+    user_id: USER_ID,
+    id: r.id,
+    date: r.date,
+    product_id: r.productId,
+    store_id: r.storeId,
+    quantity: r.quantity,
+    price: r.price,
+    sale: r.sale === true,
+    note: r.note ?? null,
+    seq: r.seq,
+    recorded_at: r.createdAt,
+    record_updated_at: r.updatedAt ?? null,
+  }));
+  mock.db.shopping_items = shoppingList.map((id) => ({ user_id: USER_ID, product_id: id, purchased: purchased.includes(id) }));
+  mock.db.user_settings = [
+    {
+      user_id: USER_ID,
+      data_version: local.version,
+      counter_product: local.counters.product,
+      counter_store: local.counters.store,
+      counter_record: local.counters.record,
+      last_synced_at: '2026-09-28T01:00:00.000Z',
+    },
+  ];
 }
 
 interface MockOptions {
@@ -281,7 +333,7 @@ async function tap(page: Page, testId: string) {
 /**
  * 取り込み前のバックアップを保存する。
  * ファイル保存そのもの（ダウンロード完了の待ち受け）は環境差が出やすいので、ここでは画面の状態で確認する。
- * 実際にファイルが作られることは「取得は、バックアップを保存して確認してから実行できる」で確認している。
+ * 実際にファイルが作られることは「取得は、確認してから実行できる」で確認している。
  */
 async function saveBackup(page: Page) {
   await tap(page, 'cloud-backup');
@@ -385,7 +437,7 @@ test.describe('クラウドとのデータのやりとり', () => {
     expect(restCalls(mock).some((c) => c.method === 'DELETE')).toBe(false);
   });
 
-  test('取得は、バックアップを保存して確認してから実行できる（元に戻せる）', async ({ page }) => {
+  test('取得は、確認してから実行できる（ファイルへのバックアップも保存でき、元に戻せる）', async ({ page }) => {
     await mockSupabase(page, { cloud: cloudFixture() });
     await signIn(page);
 
@@ -393,15 +445,19 @@ test.describe('クラウドとのデータのやりとり', () => {
     await expect(page.getByTestId('cloud-plan')).toContainText('この端末にも別の内容のデータがあります');
     await expect(page.getByTestId('cloud-preview')).toContainText('2026/9/25');
 
-    // バックアップも確認もまだなので実行できない
+    // 確認がまだなので実行できない。押せない理由が表示される
     await expect(page.getByTestId('cloud-run')).toBeDisabled();
-    await tickConfirm(page);
-    await expect(page.getByTestId('cloud-run')).toBeDisabled();
+    await expect(page.getByTestId('cloud-run-hint')).toContainText('チェックを入れてください');
 
+    // ファイルへのバックアップ（任意）も保存できる
     const download = page.waitForEvent('download');
     await tap(page, 'cloud-backup');
     expect((await download).suggestedFilename()).toMatch(/^shopping-price-backup-.*\.json$/);
+    await expect(page.getByTestId('cloud-run')).toBeDisabled();
+
+    await tickConfirm(page);
     await expect(page.getByTestId('cloud-run')).toBeEnabled();
+    await expect(page.getByTestId('cloud-run-hint')).toHaveCount(0);
 
     await tap(page, 'cloud-run');
     await expect(page.getByTestId('cloud-message')).toContainText('この端末へ取り込みました');
@@ -694,6 +750,95 @@ test.describe('クラウドとのデータのやりとり', () => {
     expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(after);
     await page.reload();
     expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(after);
+  });
+
+  // ---------- 第13回: 「この端末へ取得する」を押しても何も起きなかった不具合 ----------
+  // 本番で起きた状態：クラウドは 商品5 / 店舗9 / 価格履歴10 / 買い物リスト4、
+  // この端末は 商品5 / 店舗9 / 価格履歴10 / 買い物リスト0（＝サンプルデータ）。
+  // 以前は「ファイルへのバックアップ」を押すまで実行ボタンが押せず、その理由も表示されなかった。
+
+  test('★第13回: 買い物リストだけ違う状態から、確認のチェックだけで取り込める（5/9/10/0 → 5/9/10/4）', async ({ page }) => {
+    const mock = await mockSupabase(page);
+    await signIn(page);
+    const before = (await page.evaluate((key) => localStorage.getItem(key), KEY)) ?? '';
+    // クラウドには、この端末と同じ内容＋買い物リスト4件（うち1件購入済み）を置く
+    fillCloudFromLocal(mock, JSON.parse(before), ['P001', 'P003', 'P004', 'P005'], ['P004']);
+
+    await tap(page, 'cloud-download');
+    await expect(page.getByTestId('cloud-plan')).toContainText('この端末にも別の内容のデータがあります');
+    const counts = page.getByTestId('cloud-counts');
+    await expect(counts.getByRole('row', { name: /買い物リスト/ })).toContainText('0件');
+    await expect(counts.getByRole('row', { name: /買い物リスト/ })).toContainText('4件');
+
+    // チェック前は押せず、理由が出る
+    await expect(page.getByTestId('cloud-run')).toBeDisabled();
+    await expect(page.getByTestId('cloud-run-hint')).toContainText('この端末の内容が置き換わることを理解しました');
+
+    // チェックを入れるだけで押せる（ファイルへのバックアップは押さない）
+    await tickConfirm(page);
+    await expect(page.getByTestId('cloud-run')).toBeEnabled();
+    await tap(page, 'cloud-run');
+
+    // 成功したことが分かる表示
+    const message = page.getByTestId('cloud-message');
+    await expect(message).toContainText('この端末へ取り込みました');
+    await expect(message).toContainText('商品 5件 / 店舗 9件 / 価格履歴 10件 / 買い物リスト 4件');
+    await expect(page.getByTestId('cloud-preview')).toHaveCount(0);
+    // 件数の表も、この端末が4件になる
+    for (const [label, n] of [['商品', 5], ['店舗', 9], ['価格履歴', 10], ['買い物リスト', 4]] as const) {
+      await expect(counts.getByRole('row', { name: new RegExp(label) }).getByRole('cell').first()).toHaveText(`${n}件`);
+    }
+
+    // この端末の正本（localStorage）
+    const stored = JSON.parse((await page.evaluate((key) => localStorage.getItem(key), KEY)) ?? '{}');
+    expect(stored.products).toHaveLength(5);
+    expect(stored.stores).toHaveLength(9);
+    expect(stored.priceRecords).toHaveLength(10);
+    expect(stored.shoppingList).toEqual(['P001', 'P003', 'P004', 'P005']);
+    expect(stored.purchased).toEqual(['P004']);
+    expect(stored.version).toBe(1);
+
+    // 取り込む前のデータは「復元前バックアップ」として退避されている
+    const undo = JSON.parse((await page.evaluate((key) => localStorage.getItem(key), UNDO_KEY)) ?? '{}');
+    expect(undo.raw).toBe(before);
+    expect(undo.reason).toBe('restore');
+
+    // 再読み込みしても取り込んだ内容のまま
+    await page.reload();
+    const reloaded = JSON.parse((await page.evaluate((key) => localStorage.getItem(key), KEY)) ?? '{}');
+    expect(reloaded.shoppingList).toHaveLength(4);
+  });
+
+  test('★第13回: 端末への書き込みに失敗したら、理由を表示して端末のデータを変えない', async ({ page }) => {
+    // 「復元前バックアップ」の書き込みだけを失敗させられるようにしておく（保存容量不足と同じ状態）
+    await page.addInitScript((undoKey) => {
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (this: Storage, key: string, value: string) {
+        if ((window as unknown as { __failUndo?: boolean }).__failUndo && key === undoKey) {
+          throw new DOMException('quota', 'QuotaExceededError');
+        }
+        return original.call(this, key, value);
+      };
+    }, UNDO_KEY);
+    const mock = await mockSupabase(page);
+    await signIn(page);
+    const before = (await page.evaluate((key) => localStorage.getItem(key), KEY)) ?? '';
+    fillCloudFromLocal(mock, JSON.parse(before), ['P001', 'P003', 'P004', 'P005'], []);
+
+    await tap(page, 'cloud-download');
+    await tickConfirm(page);
+    await page.evaluate(() => ((window as unknown as { __failUndo?: boolean }).__failUndo = true));
+    await tap(page, 'cloud-run');
+
+    const message = page.getByTestId('cloud-message');
+    await expect(message).toContainText('この端末へ取り込めませんでした');
+    await expect(message).toContainText('退避できなかった');
+    // 端末のデータはそのまま（中途半端な状態にならない）
+    expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
+    await expect(page.getByTestId('cloud-counts').getByRole('row', { name: /買い物リスト/ }).getByRole('cell').first()).toHaveText('0件');
+    // 「実行中…」のまま固まらず、もう一度試せる
+    await expect(page.getByTestId('cloud-run')).toBeEnabled();
+    await expect(page.getByTestId('cloud-run')).toHaveText('この端末へ取得する');
   });
 
   test('未ログインではクラウドのデータに一切アクセスしない', async ({ page }) => {

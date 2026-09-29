@@ -2389,6 +2389,19 @@ textarea {
   height: 20px;
 }
 
+/* 第13回: 押せないボタンは押せないと分かる見た目にする（以前は押せるボタンと同じ見た目だった） */
+.cloud-data .button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 押せない理由 */
+.cloud-run-hint {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--warn);
+}
+
 /* 第13回: どちらからどちらへ、を分かりやすく */
 
 .cloud-direction {

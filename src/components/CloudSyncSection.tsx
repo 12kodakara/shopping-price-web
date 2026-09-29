@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { sendMagicLink, setAuthMessage, signOut, useAuthMessage, useAuthState, validateEmail } from '../cloud/auth';
 import { getCloudData, getCloudStatus, replaceCloudData } from '../cloud/cloudRepository';
 import { countsOf, EMPTY_COUNTS, fingerprint, type DataCounts } from '../cloud/cloudRows';
-import { backupRequiredBeforeDownload, planDownload, planUpload, type SyncPlan } from '../cloud/cloudSync';
+import { backupRequiredBeforeDownload, planDownload, planUpload, runBlockedReason, type SyncPlan } from '../cloud/cloudSync';
 import { repository } from '../data/repository';
 import { useRepoSnapshot } from '../data/useAppData';
 import { downloadBackup } from '../lib/download';
@@ -17,7 +17,7 @@ import { errorProps, FieldError } from './ui';
  * 大前提として、データの正本はこの端末（localStorage）。
  *   ・ログインしただけでは何も送受信しない
  *   ・送る／取り込むのは、この画面のボタンを押して内容を確認したときだけ
- *   ・取り込みでこの端末のデータを置き換える前に、必ずバックアップを保存してもらう
+ *   ・取り込みでこの端末のデータを置き換える前に、必ず「復元前バックアップ」として端末内に退避する（ファイルへの保存は任意・第13回）
  */
 export function CloudSyncSection() {
   const auth = useAuthState();
@@ -206,36 +206,49 @@ function CloudDataPanel() {
     setMessage({ kind: 'success', text: 'この端末のデータをクラウドへ保存しました（端末のデータはそのままです）' });
   }
 
-  /** クラウドのデータをこの端末へ取り込む（置き換える前に必ずバックアップを保存してもらう） */
+  /**
+   * クラウドのデータをこの端末へ取り込む。
+   * 置き換える前の端末のデータは repository.restore が「復元前バックアップ」として必ず退避し、
+   * 退避や保存に失敗したときは何も変えずに中止する。どこで失敗しても理由を表示する。
+   */
   async function runDownload() {
     setBusy(true);
-    const fetched = await getCloudData().catch(() => ({ ok: false, error: 'クラウドのデータを取得できませんでした' }) as const);
-    if (!fetched.ok) {
+    setMessage(null);
+    try {
+      const fetched = await getCloudData();
+      if (!fetched.ok) {
+        setMessage({ kind: 'error', text: `${fetched.error}（この端末のデータはそのままです）` });
+        return;
+      }
+      // 取り込む直前にもう一度確認：クラウドが空なら、この端末のデータを消さずに中止する
+      const incoming = countsOf(fetched.value);
+      if (incoming.products === 0 && incoming.stores === 0 && incoming.priceRecords === 0 && incoming.shoppingList === 0) {
+        setMessage({ kind: 'error', text: 'クラウドにデータがありません。この端末のデータはそのままにしました。' });
+        return;
+      }
+      const restored = repository.restore(fetched.value);
+      if (!restored.ok) {
+        setMessage({ kind: 'error', text: `この端末へ取り込めませんでした：${restored.error}` });
+        return;
+      }
+      setCloud(incoming);
+      setCheckedAt(new Date());
+      setIdentical(true);
+      closePreview();
+      setMessage({
+        kind: 'success',
+        text:
+          `クラウドのデータをこの端末へ取り込みました（商品 ${incoming.products}件 / 店舗 ${incoming.stores}件 / ` +
+          `価格履歴 ${incoming.priceRecords}件 / 買い物リスト ${incoming.shoppingList}件）。` +
+          '元に戻したいときは、下の「1つ前の状態に戻す」が使えます。',
+      });
+    } catch (e) {
+      // 想定外の例外も握りつぶさずに表示する（端末のデータは restore の中で守られている）
+      const detail = e instanceof Error && e.message ? `（${e.message}）` : '';
+      setMessage({ kind: 'error', text: `取り込みの途中で問題が起きたため、中止しました${detail}。この端末のデータはそのままです。` });
+    } finally {
       setBusy(false);
-      setMessage({ kind: 'error', text: fetched.error });
-      return;
     }
-    // 取り込む直前にもう一度確認：クラウドが空なら、この端末のデータを消さずに中止する
-    const incoming = countsOf(fetched.value);
-    if (incoming.products === 0 && incoming.stores === 0 && incoming.priceRecords === 0 && incoming.shoppingList === 0) {
-      setBusy(false);
-      setMessage({ kind: 'error', text: 'クラウドにデータがありません。この端末のデータはそのままにしました。' });
-      return;
-    }
-    const restored = repository.restore(fetched.value);
-    setBusy(false);
-    if (!restored.ok) {
-      setMessage({ kind: 'error', text: restored.error });
-      return;
-    }
-    setCloud(incoming);
-    setCheckedAt(new Date());
-    setIdentical(true);
-    closePreview();
-    setMessage({
-      kind: 'success',
-      text: 'クラウドのデータをこの端末へ取り込みました。元に戻したいときは、下の「1つ前の状態に戻す」が使えます。',
-    });
   }
 
   /** 取得の前に、内容が同じかどうかを調べる（同じなら置き換えても変わらないと案内できる） */
@@ -259,7 +272,10 @@ function CloudDataPanel() {
 
   const plan: SyncPlan | null =
     mode === null || cloud === null ? null : mode === 'upload' ? planUpload(local, cloud, identical) : planDownload(local, cloud, identical);
-  const needBackup = mode === 'download' && backupRequiredBeforeDownload(local);
+  /** ファイルへのバックアップを勧めるか（取得の条件にはしない。理由は backupRequiredBeforeDownload を参照） */
+  const suggestBackup = mode === 'download' && backupRequiredBeforeDownload(local);
+  const confirmLabel = mode === 'upload' ? 'クラウドの内容が置き換わることを理解しました' : 'この端末の内容が置き換わることを理解しました';
+  const blockedReason = runBlockedReason(plan, confirmed, confirmLabel);
   /** 件数がすべて同じか（誤操作を防ぐ案内に使う。件数が同じでも内容が同じとは限らない） */
   const sameCounts =
     cloud !== null &&
@@ -267,7 +283,7 @@ function CloudDataPanel() {
     local.stores === cloud.stores &&
     local.priceRecords === cloud.priceRecords &&
     local.shoppingList === cloud.shoppingList;
-  const canRun = !!plan?.allowed && (!plan.needsConfirm || confirmed) && (!needBackup || backedUp) && !busy;
+  const canRun = blockedReason === null && !busy;
 
   return (
     <div className="cloud-data" data-testid="cloud-data">
@@ -398,10 +414,10 @@ function CloudDataPanel() {
             </p>
           )}
 
-          {needBackup && (
+          {suggestBackup && (
             <div className="cloud-backup">
               <p className="muted small">
-                さらに念のため、いまのデータをファイルにも保存します（この端末以外からでも戻せます）。
+                さらに念のため、いまのデータをファイルにも保存できます（任意。この端末以外からでも戻せます）。
               </p>
               <button type="button" className="button button-sm" onClick={handleBackup} disabled={busy} data-testid="cloud-backup">
                 {backedUp ? 'バックアップを保存しました（もう一度保存）' : 'この端末のデータをバックアップ'}
@@ -412,8 +428,14 @@ function CloudDataPanel() {
           {plan?.needsConfirm && (
             <label className="cloud-confirm">
               <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} data-testid="cloud-confirm" />
-              {mode === 'upload' ? 'クラウドの内容が置き換わることを理解しました' : 'この端末の内容が置き換わることを理解しました'}
+              {confirmLabel}
             </label>
+          )}
+
+          {blockedReason && !busy && (
+            <p className="cloud-run-hint" data-testid="cloud-run-hint">
+              {blockedReason}
+            </p>
           )}
 
           <div className="cloud-actions">
