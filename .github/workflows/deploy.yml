@@ -56,6 +56,17 @@ jobs:
         # package-lock.json のとおりに入れる（ci は lock を書き換えない）
         run: npm ci
 
+      # 依存パッケージの既知の脆弱性を確認する（第14回）。
+      # 結果は実行画面の注記（notice / warning）に1行で出す。外部の公表状況で結果が変わるため、公開は止めない。
+      - name: 依存関係の脆弱性チェック（npm audit）
+        run: |
+          if npm audit --audit-level=high > audit.txt 2>&1; then
+            echo "::notice title=npm audit::high 以上の脆弱性なし（$(grep -iE 'vulnerabilit' audit.txt | tail -1)）"
+          else
+            echo "::warning title=npm audit::high 以上の脆弱性あり（$(grep -iE 'vulnerabilit' audit.txt | tail -1)）"
+          fi
+          rm -f audit.txt
+
       # ★壊れたものを公開しないための関門。どれか1つでも落ちれば公開しません。★
       #   画面テスト（Playwright）は別のジョブ（e2e）で並行して実行します。
       - name: 単体テスト

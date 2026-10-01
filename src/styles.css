@@ -21,6 +21,11 @@
   --warn-soft: #fdeceb;
   --sale: #b0306a;
   --sale-soft: #fce8f1;
+  /* 注意（使用停止など、戻せる操作）。文字と背景のコントラストは 5:1 以上 */
+  --caution: #7a4f00;
+  --caution-soft: #fff6e0;
+  --caution-hover: #ffeabb;
+  --caution-border: #d29b2c;
   --radius: 12px;
   --sidebar-w: 232px;
   --bottom-nav-h: 64px;
@@ -1363,23 +1368,66 @@ textarea {
   font-size: 1rem;
 }
 
+/* 第14回: 入力欄とは別の操作の領域だと分かるように、枠と薄い背景で囲む */
 .archive-controls {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
-  margin-top: 4px;
-  padding-top: 14px;
-  border-top: 1px dashed var(--border);
+  gap: 10px;
+  margin-top: 8px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
 }
 
 .archive-controls h3 {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 .archive-controls p {
   margin: 0;
+  line-height: 1.6;
+}
+
+/* 使用停止・再開・削除のボタン。「更新する」と同じ形・近い大きさで、押せるものだと分かるようにする */
+.archive-action {
+  min-height: 48px;
+  padding: 0 22px;
+  font-size: 1rem;
+  border-width: 2px;
+}
+
+.archive-action:focus-visible {
+  outline: 3px solid rgba(31, 111, 92, 0.45);
+  outline-offset: 2px;
+}
+
+/* スマホでは横幅いっぱいにして押しやすくする */
+@media (max-width: 600px) {
+  .archive-action {
+    align-self: stretch;
+  }
+}
+
+/* 注意（戻せる操作）。削除の赤より控えめな、薄い黄土色 */
+.button-caution {
+  background: var(--caution-soft);
+  color: var(--caution);
+  border-color: var(--caution-border);
+}
+
+.button-caution:hover {
+  background: var(--caution-hover);
+}
+
+.button-caution:focus-visible {
+  outline-color: rgba(138, 90, 0, 0.5);
+}
+
+.archive-controls .button-outline:hover {
+  background: var(--primary-soft);
 }
 
 .archived-section summary {

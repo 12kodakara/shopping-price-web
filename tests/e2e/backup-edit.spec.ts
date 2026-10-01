@@ -505,3 +505,62 @@ test.describe('第3回で追加した画面状態のレイアウト', () => {
     await expectNoHorizontalScroll(page);
   });
 });
+
+test.describe('第14回: 使用停止・削除の操作欄', () => {
+  test('「使用停止にする」が押せるボタンだと分かる大きさ・見た目で、キーボードでも選べる', async ({ page }, info) => {
+    await page.goto('/products');
+    await page.getByRole('button', { name: 'やさしい麦茶を編集' }).click();
+    const form = page.getByRole('form', { name: '商品の編集' });
+    const section = form.getByTestId('archive-controls');
+    const button = section.getByRole('button', { name: '使用停止にする' });
+    await expect(button).toBeVisible();
+    const before = await rawSaved(page);
+
+    // 入力欄とは別の領域として、枠と背景で囲まれている
+    const sectionStyle = await section.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { bg: s.backgroundColor, border: s.borderTopStyle, padding: parseFloat(s.paddingLeft) };
+    });
+    expect(sectionStyle.bg).not.toBe('rgba(0, 0, 0, 0)');
+    expect(sectionStyle.border).toBe('solid');
+    expect(sectionStyle.padding).toBeGreaterThanOrEqual(12);
+    await expect(section).toContainText('使わなくなった商品は「使用停止」にしてください。');
+    await expect(section).toContainText('価格履歴は残ります。');
+
+    // 押しやすい大きさ（指で押せる 44px 以上）・背景色と枠のあるボタン。削除の赤ではない
+    const box = (await button.boundingBox())!;
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    const buttonStyle = await button.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { bg: s.backgroundColor, color: s.color, border: parseFloat(s.borderTopWidth), section: getComputedStyle(el.parentElement!).backgroundColor };
+    });
+    expect(buttonStyle.bg).not.toBe(buttonStyle.section);
+    expect(buttonStyle.border).toBeGreaterThanOrEqual(2);
+    expect(buttonStyle.color).not.toBe('rgb(179, 38, 30)');
+    // スマホでは横幅いっぱい
+    if (isSp(info)) {
+      const sectionBox = (await section.boundingBox())!;
+      expect(box.width).toBeGreaterThan(sectionBox.width * 0.8);
+    }
+
+    // キーボード操作：「更新する」の次に Tab で移動でき、選択中の枠が見える
+    await form.getByRole('button', { name: '更新する' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(button).toBeFocused();
+    const focus = await button.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { visible: el.matches(':focus-visible'), style: s.outlineStyle, width: parseFloat(s.outlineWidth) };
+    });
+    expect(focus.visible).toBe(true);
+    expect(focus.style).not.toBe('none');
+    expect(focus.width).toBeGreaterThanOrEqual(2);
+
+    // 削除できない理由の表示はそのまま
+    await expect(section.getByTestId('delete-blocked')).toContainText('価格履歴が4件あるため、この商品は削除できません（履歴を守るため）。');
+    await expect(section.getByRole('button', { name: 'この商品を削除' })).toHaveCount(0);
+
+    // 見るだけでは何も変わらない
+    expect(await rawSaved(page)).toBe(before);
+    await expectNoHorizontalScroll(page);
+  });
+});

@@ -841,6 +841,109 @@ test.describe('クラウドとのデータのやりとり', () => {
     await expect(page.getByTestId('cloud-run')).toHaveText('この端末へ取得する');
   });
 
+  // ---------- 第14回: 追加・更新・削除がクラウドへ正しく反映されるか ----------
+  // 同期は「この端末の全データでクラウドを置き換える」方式。既存データには一切触れず、
+  // テスト用の商品・店舗（価格履歴を付けない＝削除できる）だけを追加 → 更新 → 削除して確かめる。
+
+  test('★第14回: テスト用の商品・店舗の追加・更新・削除が、既存データを変えずにクラウドへ反映される', async ({ page }) => {
+    const mock = await mockSupabase(page);
+    await signIn(page);
+    const original = JSON.parse((await page.evaluate((key) => localStorage.getItem(key), KEY)) ?? '{}') as LocalData;
+    const names = (rows: Row[]) => rows.map((r) => `${r.id}:${r.name}`);
+    const originalProducts = original.products.map((p) => `${p.id}:${p.name}`);
+    const originalStores = original.stores.map((s) => `${s.id}:${s.name}`);
+
+    /** この端末 → クラウド（クラウドに別の内容があれば確認のチェックを入れる） */
+    async function upload() {
+      await page.goto('/settings');
+      await tap(page, 'cloud-upload');
+      // プレビュー（クラウドの件数を読み終えてから開く）が出てから、確認が必要かを見る
+      await expect(page.getByTestId('cloud-plan')).not.toBeEmpty();
+      if (await page.getByTestId('cloud-confirm').count()) await tickConfirm(page);
+      await tap(page, 'cloud-run');
+      await expect(page.getByTestId('cloud-message')).toContainText('クラウドへ保存しました');
+    }
+    /** 既存の商品・店舗・価格履歴がクラウドでもそのまま残っているか */
+    function expectExistingKept() {
+      for (const p of originalProducts) expect(names(mock.db.products)).toContain(p);
+      for (const s of originalStores) expect(names(mock.db.stores)).toContain(s);
+      expect(mock.db.price_records).toHaveLength(original.priceRecords.length);
+    }
+
+    // 0. 最初の状態をクラウドへ（両方同じ内容にする）
+    await upload();
+    expect(mock.db.products).toHaveLength(5);
+
+    // 1. 追加：テスト用の商品・店舗
+    await page.goto('/products');
+    await page.getByRole('button', { name: '＋ 商品登録' }).click();
+    const pf = page.getByRole('form', { name: '商品登録' });
+    await pf.getByLabel('カテゴリ').fill('テスト');
+    await pf.getByLabel('品目').fill('【テスト】同期確認用');
+    await pf.getByLabel('単位').fill('個');
+    await pf.getByRole('button', { name: '登録する' }).click();
+    await expect(page.getByTestId('product-P006')).toBeVisible();
+    await page.goto('/stores');
+    await page.getByRole('button', { name: '＋ 店舗追加' }).click();
+    await page.getByLabel('店舗名').fill('【テスト】同期確認用の店');
+    await page.getByRole('button', { name: '追加する' }).click();
+    await expect(page.getByTestId('store-S010')).toBeVisible();
+
+    await upload();
+    expect(mock.db.products).toHaveLength(6);
+    expect(mock.db.stores).toHaveLength(10);
+    expect(names(mock.db.products)).toContain('P006:【テスト】同期確認用');
+    expect(names(mock.db.stores)).toContain('S010:【テスト】同期確認用の店');
+    expectExistingKept();
+
+    // 2. 更新：名前を変える（IDは変わらない）
+    await page.goto('/products');
+    await page.getByRole('button', { name: '【テスト】同期確認用を編集' }).click();
+    await page.getByRole('form', { name: '商品の編集' }).getByLabel('品目').fill('【テスト】同期確認用（更新）');
+    await page.getByRole('button', { name: '更新する' }).click();
+    await expect(page.getByTestId('product-P006')).toContainText('（更新）');
+    await page.goto('/stores');
+    await page.getByRole('button', { name: '【テスト】同期確認用の店を編集' }).click();
+    await page.getByRole('form', { name: '店舗の編集' }).getByLabel('店舗名').fill('【テスト】同期確認用の店（更新）');
+    await page.getByRole('button', { name: '更新する' }).click();
+    await expect(page.getByTestId('store-S010')).toContainText('（更新）');
+
+    await upload();
+    expect(mock.db.products).toHaveLength(6);
+    expect(names(mock.db.products)).toContain('P006:【テスト】同期確認用（更新）');
+    expect(names(mock.db.products)).not.toContain('P006:【テスト】同期確認用');
+    expect(names(mock.db.stores)).toContain('S010:【テスト】同期確認用の店（更新）');
+    expectExistingKept();
+
+    // 3. 削除：価格履歴が無いので削除できる
+    await page.goto('/products');
+    await page.getByRole('button', { name: '【テスト】同期確認用（更新）を編集' }).click();
+    page.once('dialog', (d) => void d.accept());
+    await page.getByRole('button', { name: 'この商品を削除' }).click();
+    await expect(page.getByTestId('product-P006')).toHaveCount(0);
+    await page.goto('/stores');
+    await page.getByRole('button', { name: '【テスト】同期確認用の店（更新）を編集' }).click();
+    page.once('dialog', (d) => void d.accept());
+    await page.getByRole('button', { name: 'この店舗を削除' }).click();
+    await expect(page.getByTestId('store-S010')).toHaveCount(0);
+
+    await upload();
+    // クラウドからも消え、既存データは最初と同じ
+    expect(names(mock.db.products)).toEqual(originalProducts);
+    expect(names(mock.db.stores)).toEqual(originalStores);
+    expect(mock.db.price_records).toHaveLength(original.priceRecords.length);
+
+    // 4. クラウド → この端末 の側から見ても、内容が同じ（取り込んでも変わらない）
+    await tap(page, 'cloud-download');
+    await tap(page, 'cloud-compare');
+    await expect(page.getByTestId('cloud-message')).toContainText('内容は同じです');
+    // この端末の既存データも最初と同じ
+    const now = JSON.parse((await page.evaluate((key) => localStorage.getItem(key), KEY)) ?? '{}') as LocalData;
+    expect(now.products.map((p) => `${p.id}:${p.name}`)).toEqual(originalProducts);
+    expect(now.stores.map((s) => `${s.id}:${s.name}`)).toEqual(originalStores);
+    expect(now.priceRecords).toHaveLength(original.priceRecords.length);
+  });
+
   test('未ログインではクラウドのデータに一切アクセスしない', async ({ page }) => {
     const mock = await mockSupabase(page, { cloud: cloudFixture() });
     await page.goto('/settings');

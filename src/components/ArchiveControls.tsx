@@ -33,19 +33,25 @@ export function ArchiveControls({
   }
 
   return (
-    <div className="archive-controls" aria-label={`${kind}の使用停止・削除`}>
+    // 第14回: 入力欄とは別の「操作の領域」と分かるよう、枠と背景で囲む。
+    // 使用停止は削除と違って戻せる操作なので、赤ではなく控えめな注意色のボタンにする。
+    <div className="archive-controls" aria-label={`${kind}の使用停止・削除`} data-testid="archive-controls">
       <h3>使用停止・削除</h3>
       {archived ? (
         <>
-          <p className="muted small">この{kind}は使用停止中です。価格履歴は残っています。</p>
-          <button type="button" className="button button-outline button-sm" onClick={() => onArchive(false)}>
+          <p className="small">この{kind}は使用停止中です。価格履歴は残っています。</p>
+          <button type="button" className="button button-outline archive-action" onClick={() => onArchive(false)}>
             使用を再開する
           </button>
         </>
       ) : (
         <>
-          <p className="muted small">使わなくなった{kind}は「使用停止」にしてください。価格履歴は残ります。</p>
-          <button type="button" className="button button-ghost button-sm" onClick={archive}>
+          <p className="small">
+            使わなくなった{kind}は「使用停止」にしてください。
+            <br />
+            価格履歴は残ります。
+          </p>
+          <button type="button" className="button button-caution archive-action" onClick={archive} data-testid="archive-button">
             使用停止にする
           </button>
         </>
@@ -55,7 +61,7 @@ export function ArchiveControls({
           価格履歴が{usedCount}件あるため、この{kind}は削除できません（履歴を守るため）。
         </p>
       ) : (
-        <button type="button" className="button button-danger button-sm" onClick={remove}>
+        <button type="button" className="button button-danger archive-action" onClick={remove}>
           この{kind}を削除
         </button>
       )}
