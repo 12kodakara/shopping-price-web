@@ -1,8 +1,16 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { sendMagicLink, setAuthMessage, signOut, useAuthMessage, useAuthState, validateEmail } from '../cloud/auth';
 import { getCloudData, getCloudStatus, replaceCloudData } from '../cloud/cloudRepository';
 import { countsOf, EMPTY_COUNTS, fingerprint, type DataCounts } from '../cloud/cloudRows';
-import { backupRequiredBeforeDownload, planDownload, planUpload, runBlockedReason, type SyncPlan } from '../cloud/cloudSync';
+import {
+  backupRequiredBeforeDownload,
+  describeSyncDifference,
+  planDownload,
+  planUpload,
+  runBlockedReason,
+  type ContentMatch,
+  type SyncPlan,
+} from '../cloud/cloudSync';
 import { repository } from '../data/repository';
 import { useRepoSnapshot } from '../data/useAppData';
 import { downloadBackup } from '../lib/download';
@@ -145,8 +153,22 @@ function CloudDataPanel() {
   const [mode, setMode] = useState<Mode | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [backedUp, setBackedUp] = useState(false);
-  /** クラウドと端末の内容が同じだと分かっている場合 true（取得の下調べで判明する） */
-  const [identical, setIdentical] = useState(false);
+  /**
+   * クラウドと端末の「内容」が同じかどうか。
+   * 件数が同じでも中身が同じとは限らないため、未確認（unknown）を区別する。
+   */
+  const [contentMatch, setContentMatch] = useState<ContentMatch>('unknown');
+  /** 照合したときの端末データの指紋。端末側を編集したら照合結果を無効に戻すために使う */
+  const [verifiedFingerprint, setVerifiedFingerprint] = useState<string | null>(null);
+
+  // 端末のデータを編集したら、前回の照合結果は当てにならないので未確認へ戻す
+  const localFingerprint = data ? fingerprint(data) : null;
+  useEffect(() => {
+    if (verifiedFingerprint !== null && localFingerprint !== verifiedFingerprint) {
+      setContentMatch('unknown');
+      setVerifiedFingerprint(null);
+    }
+  }, [localFingerprint, verifiedFingerprint]);
 
   /** クラウドの件数を読み直す。失敗したら理由を表示するだけで、端末のデータは触らない */
   async function refresh(): Promise<DataCounts | null> {
@@ -160,7 +182,9 @@ function CloudDataPanel() {
     setCloud(result.value.counts);
     setCloudSavedAt(result.value.lastSyncedAt);
     setCheckedAt(new Date());
-    setIdentical(false);
+    // 件数を見ただけでは内容が同じかどうかは分からない
+    setContentMatch('unknown');
+    setVerifiedFingerprint(null);
     return result.value.counts;
   }
 
@@ -200,8 +224,10 @@ function CloudDataPanel() {
     }
     setCloud(result.value);
     setCheckedAt(new Date());
+    // 「クラウドの最終保存」はクラウドへ保存できたときだけ進める
     setCloudSavedAt(new Date().toISOString());
-    setIdentical(true);
+    setContentMatch('same');
+    setVerifiedFingerprint(data ? fingerprint(data) : null);
     closePreview();
     setMessage({ kind: 'success', text: 'この端末のデータをクラウドへ保存しました（端末のデータはそのままです）' });
   }
@@ -233,7 +259,9 @@ function CloudDataPanel() {
       }
       setCloud(incoming);
       setCheckedAt(new Date());
-      setIdentical(true);
+      // 取得はクラウドを変更しないので、クラウドの最終保存日時はそのまま
+      setContentMatch('same');
+      setVerifiedFingerprint(fingerprint(fetched.value));
       closePreview();
       setMessage({
         kind: 'success',
@@ -251,8 +279,12 @@ function CloudDataPanel() {
     }
   }
 
-  /** 取得の前に、内容が同じかどうかを調べる（同じなら置き換えても変わらないと案内できる） */
-  async function checkIdentical() {
+  /**
+   * クラウドのデータを取り寄せて、この端末と内容が同じかどうかを確かめる。
+   * 件数だけでは分からない違い（同じ5件でも名前や価格が違う）を見つけるための操作で、
+   * 端末のデータもクラウドのデータも一切変更しない。
+   */
+  async function verifyContent() {
     if (!data) return;
     setBusy(true);
     const fetched = await getCloudData().finally(() => setBusy(false));
@@ -261,28 +293,30 @@ function CloudDataPanel() {
       return;
     }
     const same = fingerprint(fetched.value) === fingerprint(data);
-    setIdentical(same);
+    setContentMatch(same ? 'same' : 'different');
+    setVerifiedFingerprint(fingerprint(data));
     setCloud(countsOf(fetched.value));
     setCheckedAt(new Date());
     setMessage({
       kind: 'info',
-      text: same ? 'クラウドとこの端末の内容は同じです。' : 'クラウドとこの端末で内容が違います。どちらを残すか選んでください。',
+      text: same
+        ? 'クラウドとこの端末の内容は同じでした。'
+        : '件数が同じでも内容が違うことがあります。今回は内容が違いました。どちらを残すか選んでください。',
     });
   }
 
   const plan: SyncPlan | null =
-    mode === null || cloud === null ? null : mode === 'upload' ? planUpload(local, cloud, identical) : planDownload(local, cloud, identical);
+    mode === null || cloud === null
+      ? null
+      : mode === 'upload'
+        ? planUpload(local, cloud, contentMatch === 'same')
+        : planDownload(local, cloud, contentMatch === 'same');
   /** ファイルへのバックアップを勧めるか（取得の条件にはしない。理由は backupRequiredBeforeDownload を参照） */
   const suggestBackup = mode === 'download' && backupRequiredBeforeDownload(local);
   const confirmLabel = mode === 'upload' ? 'クラウドの内容が置き換わることを理解しました' : 'この端末の内容が置き換わることを理解しました';
   const blockedReason = runBlockedReason(plan, confirmed, confirmLabel);
-  /** 件数がすべて同じか（誤操作を防ぐ案内に使う。件数が同じでも内容が同じとは限らない） */
-  const sameCounts =
-    cloud !== null &&
-    local.products === cloud.products &&
-    local.stores === cloud.stores &&
-    local.priceRecords === cloud.priceRecords &&
-    local.shoppingList === cloud.shoppingList;
+  /** 件数と内容の違い（「件数は同じだが内容が違う」を言い分けるため） */
+  const difference = describeSyncDifference(local, cloud, contentMatch);
   const canRun = blockedReason === null && !busy;
 
   return (
@@ -329,9 +363,13 @@ function CloudDataPanel() {
         </p>
       )}
 
-      {sameCounts && mode === null && (
-        <p className="muted small" data-testid="cloud-same-counts">
-          現在の端末とクラウドの件数は一致しています。
+      {cloud !== null && (
+        <p
+          className={difference.kind === 'different' ? 'cloud-diff-warn' : 'muted small'}
+          data-testid="cloud-diff"
+          data-match={contentMatch}
+        >
+          {difference.text}
         </p>
       )}
 
@@ -350,6 +388,11 @@ function CloudDataPanel() {
           <button type="button" className="button button-ghost button-sm" onClick={() => void refresh()} disabled={busy} data-testid="cloud-check">
             {busy ? '確認中…' : 'クラウドの状態を確認'}
           </button>
+          {cloud !== null && (
+            <button type="button" className="button button-ghost button-sm" onClick={() => void verifyContent()} disabled={busy} data-testid="cloud-verify">
+              {busy ? '照合中…' : '内容まで照合する'}
+            </button>
+          )}
           <button type="button" className="button button-sm" onClick={() => void openPreview('upload')} disabled={busy} data-testid="cloud-upload">
             この端末のデータをクラウドへ保存
             <small className="cloud-direction">この端末 → クラウド</small>
@@ -381,11 +424,14 @@ function CloudDataPanel() {
 
           <p className="cloud-plan" data-testid="cloud-plan">{plan?.message}</p>
 
-          {sameCounts && (
-            <p className="muted small" data-testid="cloud-same-counts">
-              現在の端末とクラウドの件数は一致しています。{mode === 'download' ? '取得しなくてもよい可能性があります。' : '保存しなおしても変わらない可能性があります。'}
-            </p>
-          )}
+          <p
+            className={difference.kind === 'different' ? 'cloud-diff-warn' : 'muted small'}
+            data-testid="cloud-diff-preview"
+            data-match={contentMatch}
+          >
+            {difference.text}
+            {contentMatch === 'same' && (mode === 'download' ? ' 取得しなくても変わりません。' : ' 保存しなおしても変わりません。')}
+          </p>
 
           <p className="muted small">
             {mode === 'upload'
@@ -401,11 +447,9 @@ function CloudDataPanel() {
             </p>
           )}
 
-          {mode === 'download' && (
-            <button type="button" className="button button-ghost button-sm" onClick={checkIdentical} disabled={busy} data-testid="cloud-compare">
-              クラウドと内容を見比べる
-            </button>
-          )}
+          <button type="button" className="button button-ghost button-sm" onClick={() => void verifyContent()} disabled={busy} data-testid="cloud-compare">
+            {busy ? '照合中…' : 'クラウドと内容を見比べる'}
+          </button>
 
           {mode === 'download' && (
             <p className="muted small" data-testid="cloud-undo-note">

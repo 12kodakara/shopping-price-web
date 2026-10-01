@@ -490,7 +490,7 @@ test.describe('クラウドとのデータのやりとり', () => {
 
     await tap(page, 'cloud-download');
     await tap(page, 'cloud-compare');
-    await expect(page.getByTestId('cloud-message')).toContainText('内容は同じです');
+    await expect(page.getByTestId('cloud-message')).toContainText('内容は同じでした');
     await expect(page.getByTestId('cloud-plan')).toContainText('同じです');
     await expect(page.getByTestId('cloud-confirm')).toHaveCount(0);
   });
@@ -636,7 +636,7 @@ test.describe('クラウドとのデータのやりとり', () => {
     await tap(page, 'cloud-upload');
     await tap(page, 'cloud-run');
     await expect(page.getByTestId('cloud-message')).toContainText('クラウドへ保存しました');
-    await expect(page.getByTestId('cloud-same-counts')).toContainText('件数は一致しています');
+    await expect(page.getByTestId('cloud-diff')).toContainText('一致しています');
   });
 
   test('クラウド側にだけある追加データも、IDと参照関係を保ったまま取り込める', async ({ page }) => {
@@ -936,12 +936,112 @@ test.describe('クラウドとのデータのやりとり', () => {
     // 4. クラウド → この端末 の側から見ても、内容が同じ（取り込んでも変わらない）
     await tap(page, 'cloud-download');
     await tap(page, 'cloud-compare');
-    await expect(page.getByTestId('cloud-message')).toContainText('内容は同じです');
+    await expect(page.getByTestId('cloud-message')).toContainText('内容は同じでした');
     // この端末の既存データも最初と同じ
     const now = JSON.parse((await page.evaluate((key) => localStorage.getItem(key), KEY)) ?? '{}') as LocalData;
     expect(now.products.map((p) => `${p.id}:${p.name}`)).toEqual(originalProducts);
     expect(now.stores.map((s) => `${s.id}:${s.name}`)).toEqual(originalStores);
     expect(now.priceRecords).toHaveLength(original.priceRecords.length);
+  });
+
+
+  // ---------- 第15回: 件数だけに頼らない差分の検知 ----------
+
+  test('★件数が同じでも内容が違えば、そう表示される', async ({ page }) => {
+    const mock = await mockSupabase(page);
+    await signIn(page);
+
+    // いったん保存して、クラウドと端末をまったく同じ内容にする
+    await tap(page, 'cloud-upload');
+    await tap(page, 'cloud-run');
+    await expect(page.getByTestId('cloud-message')).toContainText('クラウドへ保存しました');
+    await expect(page.getByTestId('cloud-diff')).toContainText('件数も内容も一致しています');
+
+    // クラウド側だけ、商品名を1つ変える（件数は同じまま）
+    mock.db.products[0].name = 'クラウドで変更された商品';
+    await tap(page, 'cloud-check');
+    // 件数しか見ていない段階では「同じとは限らない」と伝える
+    await expect(page.getByTestId('cloud-diff')).toContainText('件数は一致しています');
+    await expect(page.getByTestId('cloud-diff')).toContainText('同じとは限りません');
+
+    // 内容まで照合すると、違いを検知できる
+    await tap(page, 'cloud-verify');
+    await expect(page.getByTestId('cloud-diff')).toContainText('件数は一致していますが、内容が異なります');
+    await expect(page.getByTestId('cloud-diff')).toHaveAttribute('data-match', 'different');
+  });
+
+  test('照合したあとに端末のデータが変わったら、照合結果は未確認に戻る', async ({ page, context }) => {
+    await mockSupabase(page);
+    await signIn(page);
+    await tap(page, 'cloud-upload');
+    await tap(page, 'cloud-run');
+    await expect(page.getByTestId('cloud-message')).toContainText('クラウドへ保存しました');
+    await expect(page.getByTestId('cloud-diff')).toContainText('件数も内容も一致しています');
+    await expect(page.getByTestId('cloud-diff')).toHaveAttribute('data-match', 'same');
+
+    // データ管理の画面を開いたまま、別のタブで店舗を1件追加する（クラウドには触れない）
+    const other = await context.newPage();
+    await other.goto('/stores');
+    await other.getByRole('button', { name: '＋ 店舗追加' }).click();
+    const form = other.getByRole('form', { name: '店舗追加' });
+    await form.getByLabel('店舗名').fill('第15回テスト店舗');
+    await form.getByRole('button', { name: '追加する' }).click();
+    await expect(other.getByRole('status')).toContainText('を追加しました');
+    await other.close();
+
+    // 元の画面の「一致しています」は取り消され、未確認に戻る
+    await expect(page.getByTestId('cloud-diff')).toHaveAttribute('data-match', 'unknown');
+    await expect(page.getByTestId('cloud-diff')).toContainText('件数が異なります');
+  });
+
+  // ---------- 第15回: クラウドの最終保存日時の扱い ----------
+
+  test('★「状態を確認」だけではクラウドを書き換えない（最終保存日時も変わらない）', async ({ page }) => {
+    const mock = await mockSupabase(page, { cloud: cloudFixture() });
+    const before = mock.db.user_settings[0].last_synced_at;
+    await signIn(page);
+
+    await tap(page, 'cloud-check');
+    await expect(page.getByTestId('cloud-updated-at')).toContainText('クラウドの最終保存：2026/9/25');
+    await tap(page, 'cloud-verify');
+    await expect(page.getByTestId('cloud-message')).toBeVisible();
+
+    // 書き込みの通信は一度も発生していない
+    expect(restCalls(mock).filter((c) => c.method !== 'GET' && c.method !== 'HEAD' && c.method !== 'OPTIONS')).toEqual([]);
+    expect(mock.db.user_settings[0].last_synced_at).toBe(before);
+  });
+
+  test('★クラウドへ保存できたときだけ、最終保存日時が進む', async ({ page }) => {
+    const mock = await mockSupabase(page, { cloud: cloudFixture() });
+    const before = String(mock.db.user_settings[0].last_synced_at);
+    await signIn(page);
+
+    await tap(page, 'cloud-upload');
+    await tickConfirm(page);
+    await tap(page, 'cloud-run');
+    await expect(page.getByTestId('cloud-message')).toContainText('クラウドへ保存しました');
+
+    const after = String(mock.db.user_settings[0].last_synced_at);
+    expect(after).not.toBe(before);
+    expect(new Date(after).getTime()).toBeGreaterThan(new Date(before).getTime());
+    await expect(page.getByTestId('cloud-updated-at')).toContainText('クラウドの最終保存：');
+  });
+
+  test('★取得（クラウド → この端末）ではクラウド側の最終保存日時を書き換えない', async ({ page }) => {
+    const mock = await mockSupabase(page, { cloud: cloudFixture() });
+    const before = mock.db.user_settings[0].last_synced_at;
+    await signIn(page);
+
+    await tap(page, 'cloud-download');
+    await tickConfirm(page);
+    await tap(page, 'cloud-run');
+    await expect(page.getByTestId('cloud-message')).toContainText('この端末へ取り込みました');
+
+    expect(mock.db.user_settings[0].last_synced_at).toBe(before);
+    // クラウドへの書き込みは発生していない
+    expect(restCalls(mock).filter((c) => c.method === 'POST' || c.method === 'DELETE' || c.method === 'PATCH')).toEqual([]);
+    // 画面にも、取得前に確認した保存日時がそのまま出る
+    await expect(page.getByTestId('cloud-updated-at')).toContainText('クラウドの最終保存：2026/9/25');
   });
 
   test('未ログインではクラウドのデータに一切アクセスしない', async ({ page }) => {

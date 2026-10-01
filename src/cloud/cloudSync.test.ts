@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { DataCounts } from './cloudRows';
-import { backupRequiredBeforeDownload, planDownload, planUpload, runBlockedReason, situationOf } from './cloudSync';
+import {
+  backupRequiredBeforeDownload,
+  describeSyncDifference,
+  hasSameCounts,
+  planDownload,
+  planUpload,
+  runBlockedReason,
+  situationOf,
+} from './cloudSync';
 
 const empty: DataCounts = { products: 0, stores: 0, priceRecords: 0, shoppingList: 0, purchased: 0 };
 const some: DataCounts = { products: 5, stores: 9, priceRecords: 5, shoppingList: 2, purchased: 1 };
@@ -111,5 +119,52 @@ describe('実行ボタンを押せない理由（第13回）', () => {
 
   it('確認が不要な状況では、そのまま押せる', () => {
     expect(runBlockedReason(planDownload(empty, some), false, label)).toBeNull();
+  });
+});
+
+// 第15回：件数が同じでも内容が違うことがある
+describe('件数と内容の違いの説明', () => {
+  it('クラウドを確認していないときは、その旨を返す', () => {
+    expect(describeSyncDifference(some, null, 'unknown')).toMatchObject({ kind: 'unknown', sameCounts: false });
+  });
+
+  it('件数が同じでも、照合していなければ「同じとは限らない」と伝える', () => {
+    const d = describeSyncDifference(some, { ...some }, 'unknown');
+    expect(d.sameCounts).toBe(true);
+    expect(d.text).toContain('件数は一致しています');
+    expect(d.text).toContain('同じとは限りません');
+    expect(d.suggestVerify).toBe(true);
+  });
+
+  it('★件数は同じだが内容が違うときは、そう言い分ける', () => {
+    const d = describeSyncDifference(some, { ...some }, 'different');
+    expect(d.sameCounts).toBe(true);
+    expect(d.kind).toBe('different');
+    expect(d.text).toContain('件数は一致していますが、内容が異なります');
+  });
+
+  it('件数も内容も違うときは、その旨を伝える', () => {
+    const d = describeSyncDifference(some, other, 'different');
+    expect(d.sameCounts).toBe(false);
+    expect(d.text).toContain('件数も内容も異なります');
+  });
+
+  it('照合して同じだったときは、同期が取れていると伝える', () => {
+    const d = describeSyncDifference(some, { ...some }, 'same');
+    expect(d.kind).toBe('same');
+    expect(d.text).toContain('件数も内容も一致しています');
+    expect(d.suggestVerify).toBe(false);
+  });
+
+  it('件数が違えば、照合していなくても違いとして扱う', () => {
+    const d = describeSyncDifference(some, other, 'unknown');
+    expect(d.sameCounts).toBe(false);
+    expect(d.kind).toBe('different');
+    expect(d.text).toContain('件数が異なります');
+  });
+
+  it('購入済みの数だけが違っても、件数一致の判定は変わらない（買い物リストの件数で見る）', () => {
+    expect(hasSameCounts(some, { ...some, purchased: some.purchased + 1 })).toBe(true);
+    expect(hasSameCounts(some, { ...some, shoppingList: some.shoppingList + 1 })).toBe(false);
   });
 });

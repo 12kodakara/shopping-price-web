@@ -126,3 +126,69 @@ export function runBlockedReason(plan: SyncPlan | null, confirmed: boolean, conf
   if (plan.needsConfirm && !confirmed) return `実行するには、上の「${confirmLabel}」にチェックを入れてください。`;
   return null;
 }
+
+// ---------- 件数と内容の違い（第15回） ----------
+
+/**
+ * クラウドとこの端末の内容が同じかどうかの確認状況。
+ *
+ * 件数は「クラウドの状態を確認」で軽く取れるが、**件数が同じでも内容が同じとは限らない**
+ * （例：同じ5件でも、片方だけ商品名を直している）。内容まで確かめるにはデータを取り寄せて
+ * 見比べる必要があるため、確認していない状態（unknown）を区別して扱う。
+ */
+export type ContentMatch = 'unknown' | 'same' | 'different';
+
+export interface SyncDifference {
+  /** 件数が全部そろっているか */
+  sameCounts: boolean;
+  /** 画面に出す説明 */
+  text: string;
+  /** 表示の強さ（same: 落ち着いた表示 / different: 注意を促す表示 / unknown: 補足） */
+  kind: 'same' | 'different' | 'unknown';
+  /** 「内容まで照合する」を勧めるか */
+  suggestVerify: boolean;
+}
+
+/** 件数がすべて同じか（買い物リストの購入済みは件数比較に含めない） */
+export function hasSameCounts(local: DataCounts, cloud: DataCounts): boolean {
+  return (
+    local.products === cloud.products &&
+    local.stores === cloud.stores &&
+    local.priceRecords === cloud.priceRecords &&
+    local.shoppingList === cloud.shoppingList
+  );
+}
+
+/**
+ * 件数と内容の違いを、利用者に伝わる言葉にする。
+ * 「件数は一致していますが、内容が異なります」を言い分けられるようにするのが目的。
+ */
+export function describeSyncDifference(local: DataCounts, cloud: DataCounts | null, match: ContentMatch): SyncDifference {
+  if (cloud === null) {
+    return { sameCounts: false, kind: 'unknown', text: 'クラウドの状態はまだ確認していません。', suggestVerify: false };
+  }
+  const sameCounts = hasSameCounts(local, cloud);
+
+  if (match === 'same') {
+    return { sameCounts, kind: 'same', text: '件数も内容も一致しています。同期は取れています。', suggestVerify: false };
+  }
+  if (match === 'different') {
+    return {
+      sameCounts,
+      kind: 'different',
+      text: sameCounts
+        ? '件数は一致していますが、内容が異なります。どちらの内容を残すか選んでください。'
+        : '件数も内容も異なります。どちらの内容を残すか選んでください。',
+      suggestVerify: false,
+    };
+  }
+  // まだ内容を見比べていない
+  return sameCounts
+    ? {
+        sameCounts,
+        kind: 'unknown',
+        text: '件数は一致しています。ただし件数が同じでも中身が同じとは限りません（「内容まで照合する」で確かめられます）。',
+        suggestVerify: true,
+      }
+    : { sameCounts, kind: 'different', text: '件数が異なります。', suggestVerify: true };
+}

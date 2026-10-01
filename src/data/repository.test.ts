@@ -335,3 +335,86 @@ describe('データ破損対策', () => {
     expect(createRepository(throwing, c.now).getSnapshot().status.kind).toBe('memory-only');
   });
 });
+
+// 第15回：商品の削除まわりの安全性（第14回の P006 削除テストに対応する自動テスト）
+describe('商品の削除（価格履歴があるかどうかで扱いを変える）', () => {
+  it('★価格履歴が0件の商品は削除できる', () => {
+    const repo = createRepository(storage, c.now);
+    // サンプルと同じ流れで「テスト用の商品」を1件足す（価格は登録しない）
+    const added = repo.addProduct({ ...newProduct, name: '同期テスト商品', category: 'テスト' });
+    expect(added.ok).toBe(true);
+    const id = added.ok ? added.value.id : '';
+    expect(id).toBe('P006');
+    expect(stored(storage).products).toHaveLength(6);
+
+    const deleted = repo.deleteProduct(id);
+    expect(deleted.ok).toBe(true);
+    expect(stored(storage).products).toHaveLength(5);
+    expect(stored(storage).products.map((p) => p.id)).toEqual(['P001', 'P002', 'P003', 'P004', 'P005']);
+  });
+
+  it('★価格履歴がある商品は削除できず、理由と代わりの方法（使用停止）を示す', () => {
+    const repo = createRepository(storage, c.now);
+    const result = repo.deleteProduct('P005'); // サンプルで価格履歴がある商品
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toContain('価格履歴');
+    expect(result.ok === false && result.error).toContain('使用停止');
+    // データは1件も変わらない
+    expect(stored(storage).products).toHaveLength(5);
+    expect(stored(storage).priceRecords).toHaveLength(10);
+  });
+
+  it('削除は使用停止とは別物（使用停止は履歴があってもできる）', () => {
+    const repo = createRepository(storage, c.now);
+    expect(repo.setProductArchived('P005', true).ok).toBe(true);
+    expect(stored(storage).products.find((p) => p.id === 'P005')?.archived).toBe(true);
+    // 使用停止にしても履歴は残る
+    expect(stored(storage).priceRecords.filter((r) => r.productId === 'P005')).not.toHaveLength(0);
+  });
+
+  it('削除しても、ほかの商品・店舗・価格履歴・買い物リストに影響しない', () => {
+    const repo = createRepository(storage, c.now);
+    const before = stored(storage);
+    const id = (() => {
+      const r = repo.addProduct({ ...newProduct, name: '削除される商品' });
+      return r.ok ? r.value.id : '';
+    })();
+    repo.setShoppingSelected('P001', true);
+    repo.deleteProduct(id);
+
+    const after = stored(storage);
+    expect(after.products.map((p) => p.id)).toEqual(before.products.map((p) => p.id));
+    expect(after.stores).toEqual(before.stores);
+    expect(after.priceRecords).toEqual(before.priceRecords);
+    expect(after.shoppingList).toEqual(['P001']); // 残す操作は残る
+  });
+
+  it('買い物リストに入れた商品を削除すると、リストと購入済みからも外れる（孤立しない）', () => {
+    const repo = createRepository(storage, c.now);
+    const added = repo.addProduct({ ...newProduct, name: 'リストに入れる商品' });
+    const id = added.ok ? added.value.id : '';
+    repo.setShoppingSelected(id, true);
+    repo.setPurchased(id, true);
+    expect(stored(storage).shoppingList).toContain(id);
+
+    expect(repo.deleteProduct(id).ok).toBe(true);
+    expect(stored(storage).shoppingList).not.toContain(id);
+    expect(stored(storage).purchased).not.toContain(id);
+  });
+
+  it('削除してもIDの通し番号は戻らない（次に追加するのは P007）', () => {
+    const repo = createRepository(storage, c.now);
+    const first = repo.addProduct({ ...newProduct, name: '一時的な商品' });
+    expect(first.ok && first.value.id).toBe('P006');
+    repo.deleteProduct('P006');
+    const second = repo.addProduct({ ...newProduct, name: '次の商品' });
+    expect(second.ok && second.value.id).toBe('P007');
+  });
+
+  it('存在しない商品を削除しようとしても、データは変わらない', () => {
+    const repo = createRepository(storage, c.now);
+    const before = storage.getItem(STORAGE_KEY);
+    expect(repo.deleteProduct('P999').ok).toBe(false);
+    expect(storage.getItem(STORAGE_KEY)).toBe(before);
+  });
+});
