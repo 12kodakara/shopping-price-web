@@ -123,6 +123,8 @@ interface MockOptions {
   cloud?: Db;
   /** 保存（INSERT）を失敗させる */
   failInsert?: boolean;
+  /** 第16回: 指定した表への最初の保存（INSERT）だけを失敗させる（途中で失敗 → 書き戻しは成功、を再現） */
+  failInsertOnce?: Table;
   /** 読み取り（件数・取得）を失敗させる。本文なしの応答も再現できる */
   failSelect?: { status: number; body?: unknown };
   /** 件数のヘッダー（content-range）を返さない */
@@ -142,6 +144,7 @@ interface Mock {
 async function mockSupabase(page: Page, options: MockOptions = {}): Promise<Mock> {
   const db: Db = options.cloud ?? emptyDb();
   const calls: Mock['calls'] = [];
+  const failedOnce = new Set<Table>();
 
   // 別オリジンへの通信なので、事前確認（OPTIONS）にも答えられるようにしておく
   const cors = {
@@ -244,6 +247,11 @@ async function mockSupabase(page: Page, options: MockOptions = {}): Promise<Mock
       if (method === 'POST') {
         if (options.failInsert) {
           await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'insert failed' }) });
+          return;
+        }
+        if (options.failInsertOnce === table && !failedOnce.has(table)) {
+          failedOnce.add(table);
+          await route.fulfill({ status: 500, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ message: 'insert failed' }) });
           return;
         }
         const payload = JSON.parse(body || '[]');
@@ -508,6 +516,45 @@ test.describe('クラウドとのデータのやりとり', () => {
     // 画面は今までどおり使える
     await page.goto('/products');
     await expect(page.getByRole('main')).toContainText('サランラップ');
+  });
+
+  // 第16回: 保存の途中で失敗しても、クラウドを中途半端な状態で残さない
+  test('★保存の途中で失敗したら、クラウドを保存前の内容に書き戻す', async ({ page }) => {
+    const original = cloudFixture();
+    const mock = await mockSupabase(page, { cloud: cloudFixture(), failInsertOnce: 'price_records' });
+    await signIn(page);
+    const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
+
+    await tap(page, 'cloud-upload');
+    await tickConfirm(page);
+    await tap(page, 'cloud-run');
+    const message = page.getByTestId('cloud-message');
+    await expect(message).toContainText('クラウドへ保存できませんでした');
+    await expect(message).toContainText('保存前の内容に戻しました');
+
+    // 商品・店舗だけ新しく、価格履歴が空…という状態ではなく、保存前と同じ内容に戻っている
+    const names = (rows: Row[]) => rows.map((r) => `${r.id}:${r.name ?? r.product_id}`).sort();
+    expect(names(mock.db.products)).toEqual(names(original.products));
+    expect(names(mock.db.stores)).toEqual(names(original.stores));
+    expect(mock.db.price_records.map((r) => r.id)).toEqual(original.price_records.map((r) => r.id));
+    expect(mock.db.shopping_items).toEqual(original.shopping_items);
+    // 端末のデータは変わらない
+    expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
+  });
+
+  test('★書き戻しもできなかったときは、もう一度保存するよう案内する', async ({ page }) => {
+    await mockSupabase(page, { cloud: cloudFixture(), failInsert: true });
+    await signIn(page);
+    const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
+
+    await tap(page, 'cloud-upload');
+    await tickConfirm(page);
+    await tap(page, 'cloud-run');
+    const message = page.getByTestId('cloud-message');
+    await expect(message).toContainText('クラウドへ保存できませんでした');
+    await expect(message).toContainText('途中までの状態');
+    await expect(message).toContainText('もう一度');
+    expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
   });
 
   test('クラウド側の準備ができていないときは、その旨を知らせる', async ({ page }) => {

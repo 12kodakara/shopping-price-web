@@ -189,6 +189,29 @@ export function unusualPriceRatio(unitPrice: number | null, reference: PriceRefe
   return ratio >= UNUSUAL_RATIO || ratio <= 1 / UNUSUAL_RATIO ? ratio : null;
 }
 
+/**
+ * 打ち間違いの注意文。新規登録と価格記録の修正の両方で、必ずこの関数で判定する
+ * （同じ値なのに、片方では注意が出てもう片方では出ない、という差を作らないため）。
+ *
+ * @param records 比較の対象にする記録（compareTargets の records）
+ * @param excludeRecordId 修正中の記録のID。修正前の自分自身と比べないように除く
+ * @returns 注意文。ふつうの範囲・比べるものがないときは null
+ */
+export function unusualPriceMessage(
+  product: Product,
+  storeId: StoreId,
+  unitPrice: number | null,
+  records: PriceRecord[],
+  excludeRecordId?: string,
+): string | null {
+  const own = records.filter((r) => r.productId === product.id && r.id !== excludeRecordId);
+  const [row] = buildCompareRows([product], own);
+  const reference = priceReference(row ?? null, storeId, product.targetUnitPrice);
+  const ratio = unusualPriceRatio(unitPrice, reference);
+  if (ratio === null || reference === null) return null;
+  return `${reference.label}（${formatYen(reference.unitPrice)}円/${product.unit}）の${describeRatio(ratio)}の単価です。販売数量・販売価格に打ち間違いがないか確認してください。`;
+}
+
 /** 倍率を「約10倍」「約3分の1」のように表す */
 export function describeRatio(ratio: number): string {
   return ratio >= 1 ? `約${formatYen(Math.round(ratio * 10) / 10)}倍` : `約${formatYen(Math.round((1 / ratio) * 10) / 10)}分の1`;

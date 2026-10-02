@@ -10,13 +10,11 @@ import {
   calcDiff,
   calcUnitPrice,
   compareTargets,
-  describeRatio,
   formatShortDate,
   formatYen,
-  priceReference,
   recentStoreIds,
   storeName,
-  unusualPriceRatio,
+  unusualPriceMessage,
 } from '../lib/price';
 import { localDateString } from '../lib/date';
 import { hasErrors, validatePriceForm, type PriceForm } from '../lib/validation';
@@ -82,13 +80,8 @@ export function PriceNewPage() {
   const isNewLowest = unitPrice !== null && compareRow?.pastLowest != null && unitPrice < compareRow.pastLowest;
   // 同じ店の前回の記録（値札と見比べやすいように、単価ではなく実際の価格と数量で見せる）
   const sameStorePrevious = form.storeId ? (compareRow?.storePrices.find((p) => p.storeId === form.storeId)?.record ?? null) : null;
-  // いつもの単価と大きく違うときは、登録前に確認する（打ち間違い対策。登録を禁止はしない）
-  const reference = product ? priceReference(compareRow, form.storeId, product.targetUnitPrice) : null;
-  const unusualRatio = unusualPriceRatio(unitPrice, reference);
-  const unusualMessage =
-    unusualRatio !== null && reference && product
-      ? `${reference.label}（${formatYen(reference.unitPrice)}円/${product.unit}）の${describeRatio(unusualRatio)}の単価です。販売数量・販売価格に打ち間違いがないか確認してください。`
-      : null;
+  // いつもの単価と大きく違うときは、登録前に確認する（打ち間違い対策。登録を禁止はしない）。判定は修正画面と共通
+  const unusualMessage = product ? unusualPriceMessage(product, form.storeId, unitPrice, targets.records) : null;
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();

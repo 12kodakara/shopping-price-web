@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { repository } from '../data/repository';
 import type { PriceRecord, Product, Store } from '../data/types';
-import { calcUnitPrice, formatYen } from '../lib/price';
+import { useAppData } from '../data/useAppData';
+import { calcUnitPrice, compareTargets, formatYen, unusualPriceMessage } from '../lib/price';
 import { hasErrors, validatePriceForm, type PriceForm } from '../lib/validation';
 import { errorProps, FieldError, Price } from './ui';
 
@@ -72,12 +73,17 @@ export function PriceRecordEditor({
   const storeOptions = stores.filter((s) => !s.archived || s.id === record.storeId);
   const product = products.find((p) => p.id === form.productId);
   const unitPrice = product && value.quantity > 0 && value.price > 0 ? calcUnitPrice(value.price, value.quantity, product.unitAmount) : null;
+  // 第16回: 打ち間違いの確認は価格登録と同じ判定。修正前の自分自身とは比べない
+  const data = useAppData();
+  const unusualMessage = product ? unusualPriceMessage(product, form.storeId, unitPrice, compareTargets(data).records, record.id) : null;
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (busy.current) return;
     setSubmitted(true);
     if (hasErrors(errors)) return;
+    // 最終的に保存するかどうかは利用者が決める（キャンセルなら何も変えない）
+    if (unusualMessage && !window.confirm(`${unusualMessage}\n\nこのまま更新しますか？`)) return;
     busy.current = true;
     const result = repository.updatePriceRecord(record.id, value);
     busy.current = false;
@@ -159,6 +165,11 @@ export function PriceRecordEditor({
         <span className="result-label">修正後の単価（{product ? `${product.unitAmount}${product.unit}あたり` : '—'}）</span>
         <Price value={unitPrice} unit={product?.unit} />
       </div>
+      {unusualMessage && (
+        <p className="price-warning" role="alert" data-testid="record-price-warning">
+          ⚠ {unusualMessage}
+        </p>
+      )}
 
       <div className="form-actions">
         <button type="button" className="button button-ghost" onClick={onCancel}>キャンセル</button>

@@ -11,6 +11,7 @@ import {
   priceReference,
   recentStoreIds,
   targetPriceFor,
+  unusualPriceMessage,
   unusualPriceRatio,
 } from './price';
 import { buildShoppingList } from './shopping';
@@ -68,6 +69,22 @@ describe('価格入力のチェック（許可する値・禁止する値）', (
     expect(quantityError('-1')).toContain('0より大きい');
     expect(quantityError(String(QUANTITY_MAX + 1))).toContain('大きすぎます');
     expect(quantityError('abc')).toBe('販売数量は数字で入力してください');
+  });
+
+  it('境界値：1円・上限ちょうど・数量1 は登録でき、上限+1円・数量0 はできない', () => {
+    expect(priceError('1')).toBeUndefined();
+    expect(priceError('1000000')).toBeUndefined();
+    expect(priceError('1,000,000')).toBeUndefined();
+    expect(priceError('1000001')).toContain('大きすぎます');
+    expect(quantityError('1')).toBeUndefined();
+    expect(quantityError(String(QUANTITY_MAX))).toBeUndefined();
+    expect(quantityError('0')).toContain('0より大きい');
+    expect(quantityError('0.0')).toContain('0より大きい');
+  });
+
+  it('空白だけ・NaN という文字は「入力してください」「数字で」で区別する', () => {
+    expect(priceError('   ')).toBe('販売価格を入力してください');
+    expect(priceError('NaN')).toBe('販売価格は数字で入力してください');
   });
 
   it('既存の保存データの読み込み（互換性）は変わらない', () => {
@@ -167,6 +184,17 @@ describe('打ち間違いの確認（いつもの単価と大きく違うとき�
 
   it('比べるものがない（初めての商品で目安もない）ときは確認しない', () => {
     expect(unusualPriceRatio(100, null)).toBeNull();
+  });
+
+  it('★新規登録と修正で同じ判定を使う。修正では修正前の自分自身とは比べない', () => {
+    const tea = mockProducts.find((p) => p.id === 'P005')!;
+    // 新規：ミスターマックスの前回（R010: 140円/本）と比べて10倍
+    expect(unusualPriceMessage(tea, 'S009', 1400, mockPriceRecords)).toContain('この店の前回（140円/本）の約10倍');
+    // 修正：R010 自身を8400円→840円に直すとき、修正前の8400円と比べて「10分の1」と誤って注意しない
+    const typo = mockPriceRecords.map((r) => (r.id === 'R010' ? { ...r, price: 8400 } : r));
+    expect(unusualPriceMessage(tea, 'S009', 140, typo, 'R010')).toBeNull();
+    // 修正で桁を間違えたときは、同じ店のほかの記録（R001: 150円/本）と比べて注意する
+    expect(unusualPriceMessage(tea, 'S009', 1400, mockPriceRecords, 'R010')).toContain('この店の前回（150円/本）');
   });
 });
 

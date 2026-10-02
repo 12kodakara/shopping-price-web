@@ -224,6 +224,39 @@ export async function replaceCloudData(data: AppData): Promise<CloudResult<DataC
   return guard('クラウドへ保存できませんでした', () => replaceCloudDataInner(data));
 }
 
+/** 置き換えの対象（user_settings は最後に別で保存する） */
+type DataTable = 'products' | 'stores' | 'price_records' | 'shopping_items';
+type TableRows = Record<DataTable, object[]>;
+/** 消す順番は、参照している側から（価格記録・買い物リスト → 商品・店舗） */
+const DELETE_ORDER: DataTable[] = ['price_records', 'shopping_items', 'products', 'stores'];
+/** 入れる順番は逆（商品・店舗 → 価格記録・買い物リスト） */
+const INSERT_ORDER: DataTable[] = ['products', 'stores', 'price_records', 'shopping_items'];
+
+interface WriteFailure {
+  error: PostgrestLikeError | null;
+  status?: number;
+}
+
+/** 本人の行を消してから、渡された行を入れる。失敗したらその時点で止め、理由を返す（成功なら null） */
+async function writeAllTables(client: Client, userId: string, rows: TableRows): Promise<WriteFailure | null> {
+  try {
+    for (const table of DELETE_ORDER) {
+      const { error, status } = await client.from(table).delete().eq('user_id', userId);
+      if (error) return { error, status };
+    }
+    for (const table of INSERT_ORDER) {
+      const all = rows[table];
+      for (let i = 0; i < all.length; i += CHUNK) {
+        const { error, status } = await client.from(table).insert(all.slice(i, i + CHUNK));
+        if (error) return { error, status };
+      }
+    }
+    return null;
+  } catch (e) {
+    return { error: { message: e instanceof Error ? e.message : String(e) } };
+  }
+}
+
 async function replaceCloudDataInner(data: AppData): Promise<CloudResult<DataCounts>> {
   const checked = loadAppData(data);
   if (!checked.ok) return { ok: false, error: `この端末のデータを確認できませんでした（${checked.reason}）` };
@@ -233,30 +266,51 @@ async function replaceCloudDataInner(data: AppData): Promise<CloudResult<DataCou
   const { client, userId } = session.value;
   const rows = toRows(userId, checked.data);
 
-  // 消す順番は、参照している側から（価格記録・買い物リスト → 商品・店舗）
-  for (const table of ['price_records', 'shopping_items', 'products', 'stores'] as const) {
-    const { error, status } = await client.from(table).delete().eq('user_id', userId);
-    if (error) return { ok: false, error: describeCloudError(error, 'クラウドの古いデータを整理できませんでした', status) };
+  // 第16回: 置き換える前に、いまのクラウドの内容を控えておく。
+  // 途中で失敗したときに書き戻し、「一部の表だけ新しい・一部は空」という中途半端な状態を残さないため。
+  // 控えが取れなければ、クラウドには一切手を付けずに中止する。
+  const before = {} as TableRows;
+  for (const table of INSERT_ORDER) {
+    const { data: current, error, status } = await client
+      .from(table)
+      .select('*')
+      .eq('user_id', userId)
+      .abortSignal(AbortSignal.timeout(READ_TIMEOUT_MS));
+    if (error) {
+      return {
+        ok: false,
+        error: `${describeCloudError(error, 'クラウドの現在の内容を確認できませんでした', status)}。保存は行っていません（クラウド・この端末とも変更なし）。`,
+      };
+    }
+    before[table] = current ?? [];
   }
 
-  // 入れる順番は逆（商品・店舗 → 価格記録・買い物リスト）
-  const inserts: [string, object[]][] = [
-    ['products', rows.products],
-    ['stores', rows.stores],
-    ['price_records', rows.priceRecords],
-    ['shopping_items', rows.shoppingItems],
-  ];
-  for (const [table, all] of inserts) {
-    for (let i = 0; i < all.length; i += CHUNK) {
-      const { error, status } = await client.from(table).insert(all.slice(i, i + CHUNK));
-      if (error) return { ok: false, error: describeCloudError(error, 'クラウドへ保存できませんでした', status) };
-    }
+  const failure = await writeAllTables(client, userId, {
+    products: rows.products,
+    stores: rows.stores,
+    price_records: rows.priceRecords,
+    shopping_items: rows.shoppingItems,
+  });
+  if (failure) {
+    const reason = describeCloudError(failure.error, 'クラウドへ保存できませんでした', failure.status);
+    const rollback = await writeAllTables(client, userId, before);
+    return {
+      ok: false,
+      error: rollback
+        ? `${reason}。クラウドの内容が途中までの状態になっている可能性があります。もう一度「この端末のデータをクラウドへ保存」を実行してください（この端末のデータはそのままです）。`
+        : `${reason}。クラウドは保存前の内容に戻しました（この端末のデータはそのままです）。`,
+    };
   }
 
   const { error: settingsError, status: settingsStatus } = await client
     .from('user_settings')
     .upsert({ ...rows.settings, last_synced_at: new Date().toISOString() }, { onConflict: 'user_id' });
-  if (settingsError) return { ok: false, error: describeCloudError(settingsError, 'クラウドへ保存できませんでした', settingsStatus) };
+  if (settingsError) {
+    return {
+      ok: false,
+      error: `データはクラウドへ保存しましたが、保存日時を記録できませんでした（${describeCloudError(settingsError, 'クラウドへ保存できませんでした', settingsStatus)}）。`,
+    };
+  }
 
   return { ok: true, value: countsOf(checked.data) };
 }

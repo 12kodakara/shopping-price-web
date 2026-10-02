@@ -90,6 +90,101 @@ test.describe('価格登録（店頭での使いやすさ）', () => {
   });
 });
 
+test.describe('価格登録の境界値', () => {
+  test('1円・上限ちょうどは登録でき、上限+1円・数量0 は登録できない', async ({ page }) => {
+    await page.goto('/prices/new');
+    await choose(page, 'product', 'P003');
+    await choose(page, 'store', 'S001');
+
+    // 数量0
+    await page.locator('#quantity').fill('0');
+    await page.locator('#price').fill('100');
+    await page.getByRole('button', { name: '登録する' }).click();
+    await expect(page.locator('#quantity-error')).toContainText('0より大きい');
+    // 上限+1円
+    await page.locator('#quantity').fill('1');
+    await page.locator('#price').fill('1000001');
+    await expect(page.locator('#price-error')).toContainText('大きすぎます');
+    expect((await saved(page)).priceRecords).toHaveLength(10);
+
+    // 上限ちょうど（いつもの単価と大きく違うので確認が出る → 承認すれば登録できる）
+    await page.locator('#price').fill('1000000');
+    await expect(page.locator('#price-error')).toHaveCount(0);
+    page.once('dialog', (d) => void d.accept());
+    await page.getByRole('button', { name: '登録する' }).click();
+    await expect(page.getByRole('status')).toContainText('価格を登録しました');
+    expect((await saved(page)).priceRecords.at(-1)).toMatchObject({ productId: 'P003', price: 1000000, quantity: 1 });
+
+    // 1円（同じく確認を承認して登録）
+    await page.waitForTimeout(1600); // 連続登録の二重クリック防止（1.5秒）を待つ
+    await choose(page, 'product', 'P003');
+    await page.locator('#quantity').fill('1');
+    await page.locator('#price').fill('1');
+    page.once('dialog', (d) => void d.accept());
+    await page.getByRole('button', { name: '登録する' }).click();
+    await expect.poll(async () => (await saved(page)).priceRecords.length).toBe(12);
+    expect((await saved(page)).priceRecords.at(-1)).toMatchObject({ price: 1, quantity: 1 });
+  });
+});
+
+test.describe('価格記録の修正・削除', () => {
+  test('★修正画面でも、いつもと大きく違う単価は確認する（キャンセルなら変えない）', async ({ page }) => {
+    await page.goto('/history?product=P005&edit=R010');
+    const form = page.getByRole('form', { name: '価格記録の修正' });
+    await expect(form).toContainText('R010');
+    // 修正前の値（840円）では注意は出ない
+    await expect(form.getByTestId('record-price-warning')).toHaveCount(0);
+
+    await form.getByLabel('販売価格').fill('8400');
+    // 修正前の自分自身ではなく、同じ店のほかの記録（R001: 150円/本）と比べる
+    await expect(form.getByTestId('record-price-warning')).toContainText('この店の前回（150円/本）');
+
+    page.once('dialog', (d) => void d.dismiss());
+    await form.getByRole('button', { name: '更新する' }).click();
+    expect((await saved(page)).priceRecords.find((r) => r.id === 'R010')).toMatchObject({ price: 840 });
+
+    page.once('dialog', (d) => void d.accept());
+    await form.getByRole('button', { name: '更新する' }).click();
+    await expect(page.getByRole('status')).toContainText('R010 を修正しました');
+    expect((await saved(page)).priceRecords.find((r) => r.id === 'R010')).toMatchObject({ price: 8400 });
+  });
+
+  test('★価格記録を削除すると、最安・前回価格・件数・買い物候補がすべて再計算される', async ({ page }) => {
+    // 削除前：やさしい麦茶の最安はミスターマックスの R010（840円/6本 = 140円/本）
+    await page.goto('/prices/new?product=P005');
+    await expect(page.getByTestId('price-result')).toContainText('現在の最安：140円/本（ミスターマックス）');
+
+    await page.goto('/history?product=P005&edit=R010');
+    const form = page.getByRole('form', { name: '価格記録の修正' });
+    let message = '';
+    page.once('dialog', (d) => {
+      message = d.message();
+      void d.accept();
+    });
+    await form.getByRole('button', { name: 'この記録を削除' }).click();
+    await expect(page.getByRole('status')).toContainText('R010 を削除しました');
+    // 削除前の確認には、日付・商品・店舗・内容・記録ID・元に戻せないことが出る
+    for (const text of ['2026-09-22', 'やさしい麦茶', 'ミスターマックス', '6本 840円', 'R010', '元に戻せません']) expect(message).toContain(text);
+
+    // 件数
+    await expect(page.getByTestId('hist-count')).toContainText('3');
+    const data = await saved(page);
+    expect(data.priceRecords.map((r) => r.id)).not.toContain('R010');
+
+    // 価格登録：最安と「この店の前回」は、残っている記録（R001: 900円/6本 = 150円/本）になる
+    await page.goto('/prices/new?product=P005');
+    await choose(page, 'store', 'S009');
+    await expect(page.getByTestId('price-result')).toContainText('現在の最安：150円/本（ミスターマックス）');
+    await expect(page.getByTestId('same-store-previous')).toHaveText('この店の前回：900円／6本（8/30）');
+
+    // 買い物候補：最安単価が150円（目安160円より10円安い）に変わる
+    await page.goto('/shopping');
+    const card = page.getByTestId('candidate-P005');
+    await expect(card).toContainText('150');
+    await expect(card).toContainText('目安より10円安い');
+  });
+});
+
 test.describe('買い物リスト（お店で見る情報）', () => {
   test('買う物・お店・値札・いくら以下なら買いかが一目で分かる', async ({ page }) => {
     await page.goto('/');
