@@ -270,6 +270,9 @@ test.describe('価格記録の編集・削除', () => {
     await choose(page, 'store', 'S002');
     await page.locator('#quantity').fill('1');
     await page.locator('#price').fill('4000'); // 400円の打ち間違い
+    // 第16回: いつもの単価と大きく違うので確認が出る。ここでは気づかずに「OK」を押してしまった場合を再現する
+    await expect(page.getByTestId('price-warning')).toBeVisible();
+    page.once('dialog', (d) => void d.accept());
     await page.getByRole('button', { name: '登録する' }).click();
     await page.getByTestId('saved-summary').getByRole('link', { name: '修正する' }).click();
     const form = page.getByRole('form', { name: '価格記録の修正' });

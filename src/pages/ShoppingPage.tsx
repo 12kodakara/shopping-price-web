@@ -164,15 +164,6 @@ export function ShoppingPage() {
                       <dt>最安店</dt>
                       <dd>{r.cheapest ? storeName(stores, r.cheapest.storeId) : '—'}</dd>
                     </div>
-                    {r.cheapest && (
-                      <div>
-                        <dt>店頭価格</dt>
-                        <dd data-testid={`candidate-shelf-${r.product.id}`}>
-                          {formatYen(r.cheapest.record.price)}円／{formatYen(r.cheapest.record.quantity)}
-                          {r.product.unit}
-                        </dd>
-                      </div>
-                    )}
                     <div>
                       <dt>最安単価</dt>
                       <dd><Price value={r.cheapest?.unitPrice ?? null} unit={r.product.unit} /></dd>

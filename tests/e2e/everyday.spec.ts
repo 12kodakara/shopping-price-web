@@ -106,9 +106,6 @@ test.describe('買い物リスト（お店で見る情報）', () => {
     await expect(group).toContainText('140円/本');
     await expect(page.getByTestId('shelf-P005')).toHaveText('前回 840円／6本・960円以下なら目安どおり');
 
-    // 候補にも、最安店の値札が出る
-    await expect(page.getByTestId('candidate-shelf-P002')).toHaveText('1,698円／4本');
-
     // 購入済みにできる（今までどおり）
     await page.getByTestId('list-item-P005').locator('.check-row').click();
     await expect(page.getByTestId('shopping-progress')).toContainText('1 / 1');
