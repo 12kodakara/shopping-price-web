@@ -6,14 +6,24 @@ export { isValidDate };
 
 export type FieldErrors<K extends string> = Partial<Record<K, string>>;
 
-/** 全角数字・全角ピリオド・カンマを許容して数値化。空欄は NaN */
+/**
+ * 全角数字・全角ピリオド・カンマを許容して数値化。空欄・数字以外は NaN。
+ * 第16回: 「1e3」「0x10」「Infinity」のような、ふつうの数字の書き方でないものは受け付けない
+ * （Infinity は保存すると null になり、データが壊れるため）。
+ */
 export function parseNumber(text: string): number {
   const normalized = text
     .replace(/[０-９．]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/[－−]/g, '-')
     .replace(/[,，]/g, '')
     .trim();
-  return normalized === '' ? Number.NaN : Number(normalized);
+  return /^-?(\d+\.?\d*|\.\d+)$/.test(normalized) ? Number(normalized) : Number.NaN;
 }
+
+/** 販売価格の上限（円）。これを超えるのは打ち間違いとみなす */
+export const PRICE_MAX = 1_000_000;
+/** 販売数量の上限 */
+export const QUANTITY_MAX = 10_000;
 
 const clean = (s: string | undefined) => (s ?? '').trim();
 const optional = (s: string | undefined) => clean(s) || undefined;
@@ -40,8 +50,11 @@ export function priceInputErrors(input: PriceInput): FieldErrors<PriceField> {
   else if (!isValidDate(input.date)) e.date = '日付が正しくありません';
   if (Number.isNaN(input.quantity)) e.quantity = '販売数量を入力してください';
   else if (!(input.quantity > 0)) e.quantity = '販売数量は0より大きい数を入力してください';
+  else if (input.quantity > QUANTITY_MAX) e.quantity = `販売数量が大きすぎます（${QUANTITY_MAX.toLocaleString('ja-JP')}まで）`;
   if (Number.isNaN(input.price)) e.price = '販売価格を入力してください';
   else if (!(input.price > 0)) e.price = '販売価格は0より大きい数を入力してください';
+  else if (!Number.isInteger(input.price)) e.price = '販売価格は1円単位（小数なし）で入力してください';
+  else if (input.price > PRICE_MAX) e.price = `販売価格が大きすぎます（${PRICE_MAX.toLocaleString('ja-JP')}円まで）`;
   return e;
 }
 
@@ -65,7 +78,11 @@ export function validatePriceForm(form: PriceForm): { errors: FieldErrors<PriceF
     sale: form.sale,
     note: optional(form.note),
   };
-  return { errors: priceInputErrors(value), value };
+  const errors = priceInputErrors(value);
+  // 何か入っているのに数字として読めないときは、「入力してください」ではなく数字で入れるよう案内する
+  if (clean(form.quantity) !== '' && Number.isNaN(value.quantity)) errors.quantity = '販売数量は数字で入力してください';
+  if (clean(form.price) !== '' && Number.isNaN(value.price)) errors.price = '販売価格は数字で入力してください';
+  return { errors, value };
 }
 
 // ---------- 商品登録 ----------

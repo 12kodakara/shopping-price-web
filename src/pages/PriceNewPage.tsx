@@ -5,7 +5,19 @@ import { Badge, DiffBadge, errorProps, FieldError, PageHeader, Price, useNotice 
 import { repository } from '../data/repository';
 import type { PriceRecord } from '../data/types';
 import { useAppData } from '../data/useAppData';
-import { buildCompareRows, calcDiff, calcUnitPrice, compareTargets, formatYen, storeName } from '../lib/price';
+import {
+  buildCompareRows,
+  calcDiff,
+  calcUnitPrice,
+  compareTargets,
+  describeRatio,
+  formatShortDate,
+  formatYen,
+  priceReference,
+  recentStoreIds,
+  storeName,
+  unusualPriceRatio,
+} from '../lib/price';
 import { localDateString } from '../lib/date';
 import { hasErrors, validatePriceForm, type PriceForm } from '../lib/validation';
 
@@ -29,6 +41,8 @@ export function PriceNewPage() {
   const storeOptions: ComboOption[] = activeStores.map((st) => ({ value: st.id, label: st.name, detail: st.type }));
   // 入力のたびに作り直さないよう、保存データが変わったときだけ計算する
   const targets = useMemo(() => compareTargets(data), [data]);
+  // 第16回: 最近価格を登録したお店（最大3件）。店頭で毎回お店を探さなくてよいように、1タップで選べるボタンにする
+  const recentStores = useMemo(() => recentStoreIds(data.priceRecords, stores, 3), [data.priceRecords, stores]);
   const [params] = useSearchParams();
   const notice = useNotice();
 
@@ -66,6 +80,15 @@ export function PriceNewPage() {
   const compareRow = useMemo(() => (product ? buildCompareRows([product], targets.records)[0] : null), [product, targets.records]);
   const currentCheapest = compareRow?.cheapest ?? null;
   const isNewLowest = unitPrice !== null && compareRow?.pastLowest != null && unitPrice < compareRow.pastLowest;
+  // 同じ店の前回の記録（値札と見比べやすいように、単価ではなく実際の価格と数量で見せる）
+  const sameStorePrevious = form.storeId ? (compareRow?.storePrices.find((p) => p.storeId === form.storeId)?.record ?? null) : null;
+  // いつもの単価と大きく違うときは、登録前に確認する（打ち間違い対策。登録を禁止はしない）
+  const reference = product ? priceReference(compareRow, form.storeId, product.targetUnitPrice) : null;
+  const unusualRatio = unusualPriceRatio(unitPrice, reference);
+  const unusualMessage =
+    unusualRatio !== null && reference && product
+      ? `${reference.label}（${formatYen(reference.unitPrice)}円/${product.unit}）の${describeRatio(unusualRatio)}の単価です。販売数量・販売価格に打ち間違いがないか確認してください。`
+      : null;
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -83,6 +106,8 @@ export function PriceNewPage() {
       if (first) document.getElementById(ids[first])?.focus();
       return;
     }
+    // 最終的に登録するかどうかは必ず利用者が決める（キャンセルなら何も保存しない）
+    if (unusualMessage && !window.confirm(`${unusualMessage}\n\nこのまま登録しますか？`)) return;
     const result = repository.addPriceRecord(value);
     if (!result.ok) {
       notice.show(result.error, 'error');
@@ -163,6 +188,23 @@ export function PriceNewPage() {
               describedBy={shownErrors.storeId ? 'store-error' : undefined}
             />
             <FieldError id="store-error" message={shownErrors.storeId} />
+            {recentStores.length > 0 && (
+              <div className="quick-picks" role="group" aria-label="最近使ったお店から選ぶ" data-testid="recent-stores">
+                <span className="quick-picks-label">最近：</span>
+                {recentStores.map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`button button-sm quick-pick${form.storeId === id ? ' is-selected' : ''}`}
+                    aria-pressed={form.storeId === id}
+                    onClick={() => set('storeId', id)}
+                    data-testid={`recent-store-${id}`}
+                  >
+                    {storeName(stores, id)}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="field">
@@ -252,6 +294,19 @@ export function PriceNewPage() {
                 </div>
               ) : (
                 <p className="muted small">販売数量と販売価格を入力すると単価を計算します。</p>
+              )}
+
+              {unusualMessage && (
+                <p className="price-warning" role="alert" data-testid="price-warning">
+                  ⚠ {unusualMessage}
+                </p>
+              )}
+
+              {sameStorePrevious && (
+                <p className="muted small" data-testid="same-store-previous">
+                  この店の前回：{formatYen(sameStorePrevious.price)}円／{formatYen(sameStorePrevious.quantity)}
+                  {product.unit}（{formatShortDate(sameStorePrevious.date)}）
+                </p>
               )}
 
               {currentCheapest && (

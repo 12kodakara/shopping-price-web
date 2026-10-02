@@ -155,6 +155,65 @@ export function buildHistory(product: Product, records: PriceRecord[]): HistoryS
   };
 }
 
+// ---------- 第16回: 価格登録の打ち間違い対策 ----------
+
+/** 比べる単価からこの倍率以上離れていたら「いつもと大きく違う」とみなす（840円を8400円と打った、など） */
+export const UNUSUAL_RATIO = 3;
+
+/** 入力した単価と比べる「いつもの単価」とその出どころ */
+export interface PriceReference {
+  unitPrice: number;
+  /** 何と比べたか（画面の説明用） */
+  label: string;
+}
+
+/**
+ * 入力中の単価と比べる基準。
+ * 同じ店の前回 → 現在の最安 → 目安単価 の順に、あるものを使う。何もなければ null（初めての商品）。
+ */
+export function priceReference(row: CompareRow | null, storeId: StoreId, targetUnitPrice: number | null): PriceReference | null {
+  const sameStore = row?.storePrices.find((p) => p.storeId === storeId);
+  if (sameStore) return { unitPrice: sameStore.unitPrice, label: 'この店の前回' };
+  if (row?.cheapest) return { unitPrice: row.cheapest.unitPrice, label: '現在の最安' };
+  if (targetUnitPrice !== null && targetUnitPrice > 0) return { unitPrice: targetUnitPrice, label: '目安単価' };
+  return null;
+}
+
+/**
+ * いつもの単価と大きく違うとき、その倍率（例: 10 なら10倍、0.1 なら10分の1）。ふつうの範囲なら null。
+ * 登録を止めるのではなく、確認を求めるために使う（本当に値上がり・値下がりしていることもあるため）。
+ */
+export function unusualPriceRatio(unitPrice: number | null, reference: PriceReference | null): number | null {
+  if (unitPrice === null || reference === null || !(unitPrice > 0) || !(reference.unitPrice > 0)) return null;
+  const ratio = unitPrice / reference.unitPrice;
+  return ratio >= UNUSUAL_RATIO || ratio <= 1 / UNUSUAL_RATIO ? ratio : null;
+}
+
+/** 倍率を「約10倍」「約3分の1」のように表す */
+export function describeRatio(ratio: number): string {
+  return ratio >= 1 ? `約${formatYen(Math.round(ratio * 10) / 10)}倍` : `約${formatYen(Math.round((1 / ratio) * 10) / 10)}分の1`;
+}
+
+/**
+ * 目安単価を、実際に売られている数量での金額に直す（お店の値札と見比べやすいように）。
+ * 例: 目安 160円/本、6本入り → 960円。小数は切り捨て（それ以下なら目安どおり）。
+ */
+export function targetPriceFor(targetUnitPrice: number | null, quantity: number, unitAmount = 1): number | null {
+  if (targetUnitPrice === null || !(quantity > 0) || !(unitAmount > 0)) return null;
+  return Math.floor(roundPrice((targetUnitPrice / unitAmount) * quantity));
+}
+
+/** 最近価格を登録した店舗（新しい順・重複なし・使用停止の店舗は除く）。価格登録で1タップで選べるようにする */
+export function recentStoreIds(records: PriceRecord[], stores: Store[], limit: number): StoreId[] {
+  const active = new Set(stores.filter((s) => !s.archived).map((s) => s.id));
+  const result: StoreId[] = [];
+  for (const r of [...records].sort((a, b) => b.seq - a.seq)) {
+    if (result.length >= limit) break;
+    if (active.has(r.storeId) && !result.includes(r.storeId)) result.push(r.storeId);
+  }
+  return result;
+}
+
 /** 新しく登録した順（登録順の通し番号の降順） */
 export function recentlyRegistered(records: PriceRecord[], limit: number): PriceRecord[] {
   return [...records].sort((a, b) => b.seq - a.seq).slice(0, limit);

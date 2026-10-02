@@ -164,6 +164,15 @@ export function ShoppingPage() {
                       <dt>最安店</dt>
                       <dd>{r.cheapest ? storeName(stores, r.cheapest.storeId) : '—'}</dd>
                     </div>
+                    {r.cheapest && (
+                      <div>
+                        <dt>店頭価格</dt>
+                        <dd data-testid={`candidate-shelf-${r.product.id}`}>
+                          {formatYen(r.cheapest.record.price)}円／{formatYen(r.cheapest.record.quantity)}
+                          {r.product.unit}
+                        </dd>
+                      </div>
+                    )}
                     <div>
                       <dt>最安単価</dt>
                       <dd><Price value={r.cheapest?.unitPrice ?? null} unit={r.product.unit} /></dd>
@@ -223,6 +232,14 @@ function CheckRow({ item, onToggle, onRemove }: { item: ShoppingItem; onToggle: 
               <Badge kind="neutral">価格未登録</Badge>
             )}
           </span>
+          {/* 第16回: お店では値札（数量と価格）で見比べるので、単価に加えて実際の金額も出す */}
+          {item.shelf && (
+            <span className="check-shelf" data-testid={`shelf-${product.id}`}>
+              前回 {formatYen(item.shelf.price)}円／{formatYen(item.shelf.quantity)}
+              {product.unit}
+              {item.buyBelow !== null && <strong>・{formatYen(item.buyBelow)}円以下なら目安どおり</strong>}
+            </span>
+          )}
         </span>
       </label>
       {!item.isCandidate && (

@@ -1,5 +1,5 @@
 import type { AppData, Product, ProductId, StoreId } from '../data/types';
-import { buildCompareRows, compareTargets } from './price';
+import { buildCompareRows, compareTargets, targetPriceFor } from './price';
 
 // 買い物リスト（「今回買う」を選んだ商品）を、お店で見やすい形に組み立てる。
 // 価格の計算は価格比較と同じ処理（buildCompareRows）を使い、ここでは並べ替えとまとめだけを行う。
@@ -15,6 +15,13 @@ export interface ShoppingItem {
   /** 今も「目安単価以下」か（リストに入れた後に値上がりした場合は false） */
   isCandidate: boolean;
   purchased: boolean;
+  /**
+   * 第16回: 最安店での実際の値札（価格と数量）。お店では単価より値札で見比べるため。
+   * 価格の記録がなければ null
+   */
+  shelf: { price: number; quantity: number } | null;
+  /** 第16回: 同じ数量で、いくら以下なら目安どおりか（目安単価がない・価格の記録がないときは null） */
+  buyBelow: number | null;
 }
 
 export interface ShoppingGroup {
@@ -39,7 +46,10 @@ export function buildShoppingList(data: AppData): { groups: ShoppingGroup[]; pro
   for (const id of data.shoppingList) {
     const row = rows.get(id);
     if (!row) continue;
+    const record = row.cheapest?.record ?? null;
     items.push({
+      shelf: record ? { price: record.price, quantity: record.quantity } : null,
+      buyBelow: record ? targetPriceFor(row.product.targetUnitPrice, record.quantity, row.product.unitAmount) : null,
       product: row.product,
       storeId: row.cheapest?.storeId ?? null,
       unitPrice: row.cheapest?.unitPrice ?? null,

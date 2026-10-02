@@ -1769,6 +1769,57 @@ textarea {
   padding: 0 8px;
 }
 
+/* 第16回: 値札（実際の価格と数量）と、いくら以下なら買いか */
+.check-shelf {
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.check-shelf strong {
+  color: var(--good);
+  font-weight: 700;
+}
+
+/* 第16回: 価格登録の「最近使ったお店」 */
+.quick-picks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.quick-picks-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.quick-pick {
+  background: var(--surface);
+  color: var(--primary);
+  border-color: var(--primary);
+  min-height: 40px;
+}
+
+.quick-pick.is-selected {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* 第16回: いつもの単価と大きく違うときの注意 */
+.price-warning {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--caution-soft);
+  color: var(--caution);
+  border: 1px solid var(--caution-border);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
 /* 購入済み: 薄く・取り消し線 */
 .is-purchased {
   background: #f7f8f8;
