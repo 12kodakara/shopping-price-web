@@ -77,5 +77,6 @@ function compare(a: SortValue, b: SortValue): number {
   if (typeof a === 'number' && typeof b === 'number') {
     return a - b;
   }
-  return String(a).localeCompare(String(b), 'ja');
+  // numeric: true にすると P1 → P2 → P10 の順になる（文字列のままだと P1 → P10 → P2）
+  return String(a).localeCompare(String(b), 'ja', { numeric: true });
 }

@@ -20,7 +20,7 @@ async function setSaved(page: Page, mutate: (d: Record<string, unknown>) => void
 
 const rawSaved = (page: Page) => page.evaluate((key) => localStorage.getItem(key), KEY);
 
-const productCards = (page: Page) => page.getByTestId('product-list').locator('> li');
+const productCards = (page: Page) => page.getByTestId('product-list').locator('> li, > tr');
 const storeRows = (page: Page) => page.getByTestId('store-list').locator('> li');
 const recordRows = (page: Page) => page.getByTestId('history-list').locator('> li');
 

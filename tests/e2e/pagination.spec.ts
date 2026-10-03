@@ -16,7 +16,7 @@ async function expectNoHorizontalScroll(page: Page) {
   expect(sw, '横スクロールが発生している').toBeLessThanOrEqual(cw);
 }
 
-const productCards = (page: Page) => page.getByTestId('product-list').locator('> li');
+const productCards = (page: Page) => page.getByTestId('product-list').locator('> li, > tr');
 const storeRows = (page: Page) => page.getByTestId('store-list').locator('> li');
 const recordRows = (page: Page) => page.getByTestId('history-list').locator('> li');
 const next = (page: Page) => page.getByRole('navigation', { name: 'ページ' }).getByRole('button', { name: /次へ/ });

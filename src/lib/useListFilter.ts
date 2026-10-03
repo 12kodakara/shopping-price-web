@@ -6,16 +6,22 @@ import { matchesStatus, searchTerms, type StatusFilter } from './search';
  * 商品・店舗一覧の検索・「使用中／使用停止／すべて」・ページ（画面の一時的な状態。保存はしない）。
  * 既定は「使用中」。このときは従来どおり、使用停止中のものを別の折りたたみ欄（archivedExtra）に出す。
  *
- * 処理の順番: 全件 → 状態で絞り込み → 検索 → ページ分割。並び順は登録順（元の配列の順）のまま。
+ * 処理の順番: 全件 → 状態で絞り込み → 検索 → 並び替え → ページ分割。
+ * 並び替え（sort）を渡さなければ、これまでどおり登録順（元の配列の順）。
  * 検索語や状態を変えたら、必ず1ページ目に戻す。
  */
-export function useListFilter<T extends { archived?: boolean }>(items: T[], matches: (item: T, query: string) => boolean) {
+export function useListFilter<T extends { archived?: boolean }>(
+  items: T[],
+  matches: (item: T, query: string) => boolean,
+  sort?: (rows: T[]) => T[],
+) {
   const [query, setQueryState] = useState('');
   const [status, setStatusState] = useState<StatusFilter>('active');
   const [requestedPage, setPage] = useState(1);
 
   const inStatus = items.filter((i) => matchesStatus(i, status));
-  const shown = inStatus.filter((i) => matches(i, query));
+  const found = inStatus.filter((i) => matches(i, query));
+  const shown = sort ? sort(found) : found;
   const paged = paginate(shown, requestedPage);
   const hasQuery = searchTerms(query).length > 0;
   const archivedExtra = status === 'active' ? items.filter((i) => i.archived && matches(i, query)) : [];

@@ -2602,3 +2602,28 @@ textarea {
 .candidate-table .num {
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- 第19回: 一覧表を詰めて表示する（商品一覧など） ---------- */
+
+.compact-table th,
+.compact-table td {
+  padding: 8px 10px;
+}
+
+.compact-table .num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 使用停止の行は控えめな表示（削除ではないことが分かるように） */
+.compact-table tbody tr.row-archived {
+  color: var(--muted);
+  background: var(--surface-muted, transparent);
+}
+
+/* 操作列はボタンとリンクを横に並べる */
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}

@@ -4,11 +4,14 @@ import { ArchiveControls } from '../components/ArchiveControls';
 import { FilterBar, FilterSummary, NoMatch, Pager, scrollToListTop, SearchField, StatusToggle } from '../components/ListFilter';
 import { Badge, errorProps, FieldError, PageHeader, Price, useNotice } from '../components/ui';
 import { repository, type Result } from '../data/repository';
-import type { Product, ProductId } from '../data/types';
+import type { PriceRecord, Product, ProductId, Store } from '../data/types';
 import { useAppData } from '../data/useAppData';
+import { buildCompareRows } from '../lib/price';
 import { productMatches } from '../lib/search';
 import { PAGE_SIZE } from '../lib/pagination';
+import { ariaSort, nextSortState, noSort, sortMark, sortRows, type SortState } from '../lib/tableSort';
 import { useListFilter } from '../lib/useListFilter';
+import { PC_QUERY, useMediaQuery } from '../lib/useMediaQuery';
 import { hasErrors, validateProductForm, type ProductForm } from '../lib/validation';
 
 const UNIT_SUGGESTIONS = ['本', '個', '枚', '袋', '箱', 'パック', 'kg', 'g', 'L', 'ml', 'm', 'ロール'];
@@ -28,7 +31,7 @@ function toForm(p: Product): ProductForm {
 }
 
 export function ProductsPage() {
-  const { products, priceRecords } = useAppData();
+  const { products, stores, priceRecords } = useAppData();
   const notice = useNotice();
   /** null: フォームを閉じている / 'new': 新規登録 / 商品ID: 編集中 */
   const [editing, setEditing] = useState<'new' | ProductId | null>(null);
@@ -48,7 +51,26 @@ export function ProductsPage() {
   }
 
   const categories = [...new Set(products.map((p) => p.category))];
-  const filter = useListFilter(products, productMatches);
+
+  // 第19回: PC は一覧表、スマホはこれまでのカード
+  const isPc = useMediaQuery(PC_QUERY);
+  const [sort, setSort] = useState<SortState<ProductColumn>>(noSort<ProductColumn>());
+
+  // 一覧に出す「最安値」「最後に価格を登録した日」を、商品ごとに1回だけ集計する
+  const summary = useMemo(() => buildProductSummary(products, stores, priceRecords), [products, stores, priceRecords]);
+  const sortValues = useMemo(
+    () => ({
+      id: (p: Product) => p.id,
+      name: (p: Product) => p.name,
+      category: (p: Product) => p.category,
+      unit: (p: Product) => `${p.unit} ${String(p.unitAmount).padStart(8, '0')}`,
+      target: (p: Product) => p.targetUnitPrice,
+      cheapest: (p: Product) => summary.get(p.id)?.cheapest ?? null,
+      lastDate: (p: Product) => summary.get(p.id)?.lastDate ?? null,
+    }),
+    [summary],
+  );
+  const filter = useListFilter(products, productMatches, (rows) => sortRows(rows, sort, sortValues));
   // 商品ごとの価格記録の件数（商品ごとに全記録を数え直さないよう、記録が変わったときに1回だけ集計する）
   const recordCounts = useMemo(() => {
     const m = new Map<ProductId, number>();
@@ -137,9 +159,62 @@ export function ProductsPage() {
 
       {filter.shown.length > 0 ? (
         <>
-          <ul className="card-list" data-testid="product-list">
-            {filter.paged.items.map(card)}
-          </ul>
+          {isPc ? (
+            <div className="card table-wrap">
+              <table className="table compact-table" data-testid="product-table">
+                <thead>
+                  <tr>
+                    {PRODUCT_COLUMNS.map((col) => (
+                      <th key={col.key} scope="col" className={col.numeric ? 'num' : undefined} aria-sort={ariaSort(sort, col.key)}>
+                        <button
+                          type="button"
+                          className="sort-button"
+                          onClick={() => setSort((current) => nextSortState(current, col.key))}
+                          data-testid={`product-sort-${col.key}`}
+                        >
+                          {col.label}
+                          <span className="sort-mark" aria-hidden="true">{sortMark(sort, col.key)}</span>
+                        </button>
+                      </th>
+                    ))}
+                    <th scope="col">操作</th>
+                  </tr>
+                </thead>
+                <tbody data-testid="product-list">
+                  {filter.paged.items.map((p) => {
+                    const s = summary.get(p.id);
+                    return (
+                      <tr key={p.id} data-testid={`product-${p.id}`} className={p.archived ? 'row-archived' : undefined}>
+                        <td><span className="id-tag">{p.id}</span></td>
+                        <td>
+                          {p.name}
+                          {p.archived && <> <Badge kind="neutral">使用停止</Badge></>}
+                          {(p.maker || p.memo) && <div className="muted small">{[p.maker, p.memo].filter(Boolean).join('・')}</div>}
+                        </td>
+                        <td className="muted small">{p.category}</td>
+                        <td>{p.unitAmount}{p.unit}あたり</td>
+                        <td className="num"><Price value={p.targetUnitPrice} unit={p.unit} size="sm" /></td>
+                        <td className="num"><Price value={s?.cheapest ?? null} unit={p.unit} size="sm" /></td>
+                        <td>{s?.lastDate ?? <span className="muted">—</span>}</td>
+                        <td>
+                          <div className="row-actions">
+                            <button type="button" className="button button-ghost button-sm" onClick={() => open(p.id)} aria-label={`${p.name}を編集`}>
+                              編集
+                            </button>
+                            <Link to={`/history?product=${p.id}`} className="text-link small">履歴（{countOf(p.id)}）</Link>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <ul className="card-list" data-testid="product-list">
+              {filter.paged.items.map(card)}
+            </ul>
+          )}
           <Pager
             page={filter.paged.page}
             pageCount={filter.paged.pageCount}
@@ -263,4 +338,50 @@ function ProductEditor({
       {children}
     </form>
   );
+}
+
+/** 商品一覧（PC）の列。並び替えに使う */
+type ProductColumn = 'id' | 'name' | 'category' | 'unit' | 'target' | 'cheapest' | 'lastDate';
+
+const PRODUCT_COLUMNS: { key: ProductColumn; label: string; numeric?: boolean }[] = [
+  { key: 'id', label: '商品ID' },
+  { key: 'name', label: '商品名' },
+  { key: 'category', label: 'カテゴリ' },
+  { key: 'unit', label: '比較単位' },
+  { key: 'target', label: '目安単価', numeric: true },
+  { key: 'cheapest', label: '最安単価', numeric: true },
+  { key: 'lastDate', label: '最終登録日' },
+];
+
+interface ProductSummary {
+  /** いまの最安単価（使用停止の店舗は除く）。価格の記録がなければ null */
+  cheapest: number | null;
+  /** 最後に価格を登録した日（YYYY-MM-DD）。記録がなければ null */
+  lastDate: string | null;
+}
+
+/**
+ * 一覧に出す「最安単価」と「最終登録日」を商品ごとにまとめる。
+ * 保存データには無い項目なので、価格履歴から求める（データの形は変えない）。
+ * 使用停止の商品も一覧には出すため、ここでは商品を絞らない。
+ */
+function buildProductSummary(products: Product[], stores: Store[], records: PriceRecord[]): Map<ProductId, ProductSummary> {
+  const activeStores = new Set(stores.filter((s) => !s.archived).map((s) => s.id));
+  const usable = records.filter((r) => activeStores.has(r.storeId));
+  const rows = buildCompareRows(products, usable);
+
+  const lastDates = new Map<ProductId, string>();
+  for (const r of records) {
+    const current = lastDates.get(r.productId);
+    if (!current || r.date > current) lastDates.set(r.productId, r.date);
+  }
+
+  const result = new Map<ProductId, ProductSummary>();
+  for (const row of rows) {
+    result.set(row.product.id, {
+      cheapest: row.cheapest?.unitPrice ?? null,
+      lastDate: lastDates.get(row.product.id) ?? null,
+    });
+  }
+  return result;
 }

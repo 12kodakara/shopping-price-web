@@ -597,3 +597,187 @@ test.describe('買い物候補（スマホはコンパクトなカードのま�
     expect(overflow).toBeLessThanOrEqual(1);
   });
 });
+
+// 第19回: 商品一覧をPCでは一覧表にして、見出しから並び替えられるようにする
+test.describe('商品一覧の一覧表（PC）', () => {
+  test.skip(({ isMobile }) => !!isMobile, 'PC表示でのみ確認する');
+
+  const cells = (page: import('@playwright/test').Page, nth: number) =>
+    page.getByTestId('product-list').locator(`> tr td:nth-child(${nth})`).allInnerTexts();
+
+  test('★一覧表で全件が1行ずつ出て、必要な列がそろっている', async ({ page }) => {
+    await page.goto('/products');
+    const table = page.getByTestId('product-table');
+    await expect(table).toBeVisible();
+    for (const label of ['商品ID', '商品名', 'カテゴリ', '比較単位', '目安単価', '最安単価', '最終登録日', '操作']) {
+      await expect(table.getByRole('columnheader', { name: new RegExp(label) })).toBeVisible();
+    }
+    await expect(page.getByTestId('product-list').locator('> tr')).toHaveCount(5);
+
+    // サンプルの1行目（登録順のまま＝P001）
+    const first = page.getByTestId('product-list').locator('> tr').first();
+    await expect(first).toContainText('P001');
+    await expect(first).toContainText('サランラップ');
+    await expect(first).toContainText('日用品');
+    await expect(first).toContainText('1本あたり'); // 比較単位
+  });
+
+  test('★商品IDは P1 → P2 → P10 の順（文字列順にならない）', async ({ page }) => {
+    await page.goto('/products');
+    // テスト用に商品を10件まで増やす（このテストのブラウザの中だけ）
+    for (let i = 6; i <= 10; i += 1) {
+      await page.getByRole('button', { name: '＋ 商品登録' }).click();
+      const form = page.getByRole('form', { name: '商品登録' });
+      await form.getByLabel('カテゴリ').fill('テスト');
+      await form.getByLabel('品目').fill(`テスト商品${i}`);
+      await form.getByLabel('基準数量').fill('1');
+      await form.getByLabel('単位').fill('個');
+      await form.getByRole('button', { name: '登録する' }).click();
+      await expect(page.getByRole('status')).toContainText('を登録しました');
+    }
+
+    await page.getByTestId('product-sort-id').click();
+    const ids = (await cells(page, 1)).map((t) => t.trim());
+    expect(ids).toEqual(['P001', 'P002', 'P003', 'P004', 'P005', 'P006', 'P007', 'P008', 'P009', 'P010']);
+
+    await page.getByTestId('product-sort-id').click();
+    expect((await cells(page, 1)).map((t) => t.trim())).toEqual([
+      'P010', 'P009', 'P008', 'P007', 'P006', 'P005', 'P004', 'P003', 'P002', 'P001',
+    ]);
+  });
+
+  test('★商品名の昇順・降順（日本語の並び）と、元の並びへ戻せる', async ({ page }) => {
+    await page.goto('/products');
+    const before = await cells(page, 2);
+
+    await page.getByTestId('product-sort-name').click();
+    const asc = await cells(page, 2);
+    expect(asc).toEqual([...asc].sort((a, b) => a.localeCompare(b, 'ja')));
+    await expect(page.getByRole('columnheader', { name: /商品名/ })).toHaveAttribute('aria-sort', 'ascending');
+
+    await page.getByTestId('product-sort-name').click();
+    expect(await cells(page, 2)).toEqual([...asc].reverse());
+    await expect(page.getByRole('columnheader', { name: /商品名/ })).toHaveAttribute('aria-sort', 'descending');
+
+    await page.getByTestId('product-sort-name').click();
+    expect(await cells(page, 2)).toEqual(before);
+    await expect(page.getByRole('columnheader', { name: /商品名/ })).toHaveAttribute('aria-sort', 'none');
+  });
+
+  test('★金額は数値として並ぶ（100 → 200 → 1000 の順）', async ({ page }) => {
+    await page.goto('/products');
+    const numbers = async (nth: number) =>
+      (await cells(page, nth)).map((t) => (t.includes('—') ? null : Number(t.replace(/[^0-9.]/g, ''))));
+
+    await page.getByTestId('product-sort-target').click();
+    const target = (await numbers(5)).filter((v): v is number => v !== null);
+    expect(target).toEqual([...target].sort((a, b) => a - b));
+
+    await page.getByTestId('product-sort-cheapest').click();
+    const cheapest = (await numbers(6)).filter((v): v is number => v !== null);
+    expect(cheapest).toEqual([...cheapest].sort((a, b) => a - b));
+
+    await page.getByTestId('product-sort-cheapest').click();
+    const desc = (await numbers(6)).filter((v): v is number => v !== null);
+    expect(desc).toEqual([...desc].sort((a, b) => b - a));
+  });
+
+  test('★値がない商品（価格未登録）が混ざっても壊れず、最後に並ぶ', async ({ page }) => {
+    await page.goto('/products');
+    // 価格履歴のない商品を1件追加する
+    await page.getByRole('button', { name: '＋ 商品登録' }).click();
+    const form = page.getByRole('form', { name: '商品登録' });
+    await form.getByLabel('カテゴリ').fill('テスト');
+    await form.getByLabel('品目').fill('価格未登録の商品');
+    await form.getByLabel('基準数量').fill('1');
+    await form.getByLabel('単位').fill('個');
+    await form.getByRole('button', { name: '登録する' }).click();
+    await expect(page.getByRole('status')).toContainText('を登録しました');
+
+    await page.getByTestId('product-sort-cheapest').click();
+    expect((await cells(page, 2)).at(-1)).toContain('価格未登録の商品');
+    await page.getByTestId('product-sort-cheapest').click(); // 降順でも最後
+    expect((await cells(page, 2)).at(-1)).toContain('価格未登録の商品');
+    // 件数は欠けない
+    await expect(page.getByTestId('product-list').locator('> tr')).toHaveCount(6);
+  });
+
+  test('★カテゴリ・比較単位・最終登録日でも並び替えられる', async ({ page }) => {
+    await page.goto('/products');
+    for (const key of ['category', 'unit', 'lastDate']) {
+      await page.getByTestId(`product-sort-${key}`).click();
+      await expect(page.getByTestId('product-list').locator('> tr')).toHaveCount(5);
+      await page.getByTestId(`product-sort-${key}`).click();
+      await expect(page.getByTestId('product-list').locator('> tr')).toHaveCount(5);
+      await page.getByTestId(`product-sort-${key}`).click();
+    }
+  });
+
+  test('★検索で絞り込んだ結果に対しても並び替えできる', async ({ page }) => {
+    await page.goto('/products');
+    await page.getByLabel('商品を検索').fill('ラップ');
+    await expect(page.getByTestId('product-list').locator('> tr')).toHaveCount(2);
+
+    await page.getByTestId('product-sort-name').click();
+    const asc = await cells(page, 2);
+    expect(asc).toEqual([...asc].sort((a, b) => a.localeCompare(b, 'ja')));
+    await page.getByTestId('product-sort-name').click();
+    expect(await cells(page, 2)).toEqual([...asc].reverse());
+    // 絞り込みは保たれる
+    await expect(page.getByTestId('product-list').locator('> tr')).toHaveCount(2);
+  });
+
+  test('★使用停止の絞り込みと並び替えが両立する', async ({ page }) => {
+    await page.goto('/products');
+    await page.getByRole('button', { name: 'やさしい麦茶を編集' }).click();
+    const form = page.getByRole('form', { name: '商品の編集' });
+    page.once('dialog', (d) => void d.accept());
+    await form.getByRole('button', { name: '使用停止にする' }).click();
+    await expect(page.getByRole('status')).toContainText('使用停止にしました');
+
+    await page.getByRole('radio', { name: 'すべて' }).check();
+    await page.getByTestId('product-sort-name').click();
+    await expect(page.getByTestId('product-list').locator('> tr')).toHaveCount(5);
+    await expect(page.getByTestId('product-P005')).toContainText('使用停止');
+  });
+
+  test('編集と削除保護が一覧表からも使える', async ({ page }) => {
+    await page.goto('/products');
+    await page.getByTestId('product-P005').getByRole('button', { name: 'やさしい麦茶を編集' }).click();
+    const form = page.getByRole('form', { name: '商品の編集' });
+    await expect(form).toBeVisible();
+    // 価格履歴があるので削除できない（保護が働いている）
+    await expect(form.getByTestId('delete-blocked')).toContainText('価格履歴');
+    await expect(form.getByRole('button', { name: 'この商品を削除' })).toHaveCount(0);
+  });
+
+  test('見出しはキーボードでも操作でき、横スクロールも出ない', async ({ page }) => {
+    await page.goto('/products');
+    await page.getByTestId('product-sort-id').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('columnheader', { name: /商品ID/ })).toHaveAttribute('aria-sort', 'ascending');
+    await page.keyboard.press('Space');
+    await expect(page.getByRole('columnheader', { name: /商品ID/ })).toHaveAttribute('aria-sort', 'descending');
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+});
+
+test.describe('商品一覧（スマホはカードのまま）', () => {
+  test.skip(({ isMobile }) => !isMobile, 'スマホ表示でのみ確認する');
+
+  test('★スマホでは表ではなくカードで、編集もできる', async ({ page }) => {
+    await page.goto('/products');
+    await expect(page.getByTestId('product-table')).toHaveCount(0);
+    const card = page.getByTestId('product-P005');
+    await expect(card).toContainText('やさしい麦茶');
+    await expect(card).toContainText('目安単価');
+    await expect(card.getByRole('button', { name: 'やさしい麦茶を編集' })).toBeVisible();
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+    // 下部ナビはそのまま
+    await expect(page.getByTestId('bottom-nav')).toBeVisible();
+  });
+});
