@@ -258,6 +258,13 @@ async function writeAllTables(client: Client, userId: string, rows: TableRows): 
   }
 }
 
+/** いまクラウドに記録されている「保存の完了印」（読めなければ null として扱う） */
+async function readLastSyncedAt(client: Client, userId: string): Promise<string | null> {
+  const { data, error } = await client.from('user_settings').select('last_synced_at').eq('user_id', userId).limit(1);
+  if (error) return null;
+  return (data?.[0] as { last_synced_at?: string | null } | undefined)?.last_synced_at ?? null;
+}
+
 async function replaceCloudDataInner(data: AppData): Promise<CloudResult<DataCounts>> {
   const checked = loadAppData(data);
   if (!checked.ok) return { ok: false, error: `この端末のデータを確認できませんでした（${checked.reason}）` };
@@ -298,6 +305,21 @@ async function replaceCloudDataInner(data: AppData): Promise<CloudResult<DataCou
     before[table] = current ?? [];
   }
 
+  // 第18回: 書き換えを始める前に「保存の完了印」を消す（last_synced_at を空にする）。
+  // 書き換えの途中で通信が切れ、書き戻しにも失敗した場合、クラウドは中途半端な内容で残る。
+  // 完了印が空であれば「保存が終わっていない」と分かるので、別の端末がその状態を
+  // 取り込んでしまうのを防げる（取り込み側で確認する）。
+  const previousSyncedAt = await readLastSyncedAt(client, userId);
+  const { error: markError, status: markStatus } = await client
+    .from('user_settings')
+    .upsert({ ...rows.settings, last_synced_at: null }, { onConflict: 'user_id' });
+  if (markError) {
+    return {
+      ok: false,
+      error: `${describeCloudError(markError, 'クラウドへ保存できませんでした', markStatus)}。保存は行っていません（クラウド・この端末とも変更なし）。`,
+    };
+  }
+
   const failure = await writeAllTables(client, userId, {
     products: rows.products,
     stores: rows.stores,
@@ -307,6 +329,10 @@ async function replaceCloudDataInner(data: AppData): Promise<CloudResult<DataCou
   if (failure) {
     const reason = describeCloudError(failure.error, 'クラウドへ保存できませんでした', failure.status);
     const rollback = await writeAllTables(client, userId, before);
+    if (!rollback) {
+      // 元の内容に戻せたので、元の保存日時（完了印）も戻す
+      await client.from('user_settings').upsert({ ...rows.settings, last_synced_at: previousSyncedAt }, { onConflict: 'user_id' });
+    }
     return {
       ok: false,
       error: rollback

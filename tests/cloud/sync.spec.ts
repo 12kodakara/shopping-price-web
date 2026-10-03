@@ -245,8 +245,9 @@ async function mockSupabase(page: Page, options: MockOptions = {}): Promise<Mock
         return;
       }
       if (method === 'POST') {
-        if (options.failInsert) {
-          await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'insert failed' }) });
+        // データの表への書き込みだけ失敗させる（設定の表＝保存の完了印は書けるままにする）
+        if (options.failInsert && table !== 'user_settings') {
+          await route.fulfill({ status: 500, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ message: 'insert failed' }) });
           return;
         }
         if (options.failInsertOnce === table && !failedOnce.has(table)) {
@@ -1089,6 +1090,65 @@ test.describe('クラウドとのデータのやりとり', () => {
     expect(restCalls(mock).filter((c) => c.method === 'POST' || c.method === 'DELETE' || c.method === 'PATCH')).toEqual([]);
     // 画面にも、取得前に確認した保存日時がそのまま出る
     await expect(page.getByTestId('cloud-updated-at')).toContainText('クラウドの最終保存：2026/9/25');
+  });
+
+
+  // ---------- 第18回: 実運用に向けたデータ保護 ----------
+
+  test('★保存の途中で失敗したら、完了印が残らず、別の端末は取り込めない', async ({ page }) => {
+    const mock = await mockSupabase(page, { failInsert: true });
+    await signIn(page);
+    const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
+
+    // 保存を実行 → 途中で失敗する
+    await tap(page, 'cloud-upload');
+    await tap(page, 'cloud-run');
+    await expect(page.getByTestId('cloud-message')).toContainText('クラウドへ保存できませんでした');
+
+    // この端末のデータは変わらない
+    expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
+    // クラウド側には「保存の完了印」が残っていない
+    expect(mock.db.user_settings[0]?.last_synced_at ?? null).toBeNull();
+  });
+
+  test('★完了印のないクラウド（保存が途中で止まった状態）は取り込めない', async ({ page }) => {
+    // 商品だけ入っていて、完了印（last_synced_at）がないクラウドを用意する
+    const broken = cloudFixture();
+    broken.user_settings[0].last_synced_at = null;
+    const mock = await mockSupabase(page, { cloud: broken });
+    await signIn(page);
+    const before = await page.evaluate((key) => localStorage.getItem(key), KEY);
+
+    await tap(page, 'cloud-check');
+    await expect(page.getByTestId('cloud-incomplete')).toContainText('保存が完了していない可能性があります');
+
+    await tap(page, 'cloud-download');
+    await expect(page.getByTestId('cloud-plan')).toContainText('保存が完了していない可能性');
+    await expect(page.getByTestId('cloud-run')).toBeDisabled();
+
+    // 端末のデータはそのまま、クラウドへの書き込みも発生しない
+    expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(before);
+    expect(restCalls(mock).filter((c) => c.method === 'POST' || c.method === 'DELETE' || c.method === 'PATCH')).toEqual([]);
+  });
+
+  test('保存し直せば完了印が戻り、取り込めるようになる', async ({ page }) => {
+    const broken = cloudFixture();
+    broken.user_settings[0].last_synced_at = null;
+    await mockSupabase(page, { cloud: broken });
+    await signIn(page);
+
+    await tap(page, 'cloud-check');
+    await expect(page.getByTestId('cloud-incomplete')).toBeVisible();
+
+    // この端末の内容で保存し直す
+    await tap(page, 'cloud-upload');
+    await tickConfirm(page);
+    await tap(page, 'cloud-run');
+    await expect(page.getByTestId('cloud-message')).toContainText('クラウドへ保存しました');
+
+    // 注意は消え、最終保存日時が入る
+    await expect(page.getByTestId('cloud-incomplete')).toHaveCount(0);
+    await expect(page.getByTestId('cloud-updated-at')).toContainText('クラウドの最終保存：');
   });
 
   test('未ログインではクラウドのデータに一切アクセスしない', async ({ page }) => {

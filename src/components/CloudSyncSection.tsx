@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { sendMagicLink, setAuthMessage, signOut, useAuthMessage, useAuthState, validateEmail } from '../cloud/auth';
 import { getCloudData, getCloudStatus, replaceCloudData } from '../cloud/cloudRepository';
-import { countsOf, EMPTY_COUNTS, fingerprint, type DataCounts } from '../cloud/cloudRows';
+import { countsOf, EMPTY_COUNTS, fingerprint, isEmptyCounts, type DataCounts } from '../cloud/cloudRows';
 import {
   backupRequiredBeforeDownload,
   describeSyncDifference,
@@ -305,12 +305,18 @@ function CloudDataPanel() {
     });
   }
 
+  /**
+   * クラウドにデータはあるのに保存の完了印（最終保存日時）がない状態。
+   * 保存が途中で止まった可能性があるので、取り込みは行わせない。
+   */
+  const cloudIncomplete = cloud !== null && !isEmptyCounts(cloud) && cloudSavedAt === null;
+
   const plan: SyncPlan | null =
     mode === null || cloud === null
       ? null
       : mode === 'upload'
         ? planUpload(local, cloud, contentMatch === 'same')
-        : planDownload(local, cloud, contentMatch === 'same');
+        : planDownload(local, cloud, contentMatch === 'same', cloudIncomplete);
   /** ファイルへのバックアップを勧めるか（取得の条件にはしない。理由は backupRequiredBeforeDownload を参照） */
   const suggestBackup = mode === 'download' && backupRequiredBeforeDownload(local);
   const confirmLabel = mode === 'upload' ? 'クラウドの内容が置き換わることを理解しました' : 'この端末の内容が置き換わることを理解しました';
@@ -354,6 +360,13 @@ function CloudDataPanel() {
       <p className="muted small" data-testid="cloud-checked-at">
         {checkedAt ? `クラウドの確認：${checkedAt.toLocaleString('ja-JP')}` : 'クラウドの状態はまだ確認していません'}
       </p>
+
+      {cloudIncomplete && (
+        <p className="cloud-diff-warn" role="status" data-testid="cloud-incomplete">
+          クラウドのデータは保存が完了していない可能性があります。保存した端末で、もう一度「この端末のデータをクラウドへ保存」を行ってください。
+          （この端末のデータはそのままです）
+        </p>
+      )}
 
       {cloud !== null && (
         <p className="muted small" data-testid="cloud-updated-at">

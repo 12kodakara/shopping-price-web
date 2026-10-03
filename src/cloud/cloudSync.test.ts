@@ -168,3 +168,30 @@ describe('件数と内容の違いの説明', () => {
     expect(hasSameCounts(some, { ...some, shoppingList: some.shoppingList + 1 })).toBe(false);
   });
 });
+
+// 第18回: 保存が途中で止まったクラウドを取り込ませない
+describe('保存が完了していないクラウド（完了印がない）', () => {
+  it('★クラウドにデータがあるのに完了印がないときは取得できない', () => {
+    const plan = planDownload(empty, some, false, true);
+    expect(plan.allowed).toBe(false);
+    expect(plan.message).toContain('保存が完了していない可能性');
+    expect(plan.message).toContain('もう一度');
+  });
+
+  it('★両方にデータがある場合も、完了印がなければ取得できない', () => {
+    expect(planDownload(some, other, false, true).allowed).toBe(false);
+  });
+
+  it('完了印があれば、これまでどおり取得できる', () => {
+    expect(planDownload(empty, some, false, false).allowed).toBe(true);
+    expect(planDownload(some, other, false, false)).toMatchObject({ allowed: true, needsConfirm: true });
+  });
+
+  it('クラウドが空なら、完了印の有無に関係なく「取るものがない」の案内になる', () => {
+    expect(planDownload(some, empty, false, true).message).toContain('クラウドにデータがありません');
+  });
+
+  it('保存（端末→クラウド）は完了印の影響を受けない（上書きして直せるため）', () => {
+    expect(planUpload(some, other).allowed).toBe(true);
+  });
+});

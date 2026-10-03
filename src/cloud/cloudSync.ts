@@ -74,8 +74,21 @@ export function planUpload(local: DataCounts, cloud: DataCounts, identical = fal
  * クラウドのデータをこの端末へ取得してよいか。
  * `identical` は、両方にデータがあって内容も同じだと分かっている場合に true。
  */
-export function planDownload(local: DataCounts, cloud: DataCounts, identical = false): SyncPlan {
+export function planDownload(local: DataCounts, cloud: DataCounts, identical = false, cloudIncomplete = false): SyncPlan {
   const situation = situationOf(local, cloud);
+
+  // 第18回: クラウドにデータはあるのに「保存の完了印」がない＝保存が途中で止まった可能性がある。
+  // そのまま取り込むと、欠けた内容でこの端末が置き換わってしまうので実行させない。
+  if (cloudIncomplete && situation !== 'both-empty' && situation !== 'local-only') {
+    return {
+      situation,
+      allowed: false,
+      needsConfirm: false,
+      message:
+        'クラウドのデータは保存が完了していない可能性があります（保存の途中で通信が切れたときに起こります）。' +
+        '取り込むと内容が欠けたままになるため、実行できません。保存した端末で、もう一度「この端末のデータをクラウドへ保存」を行ってください。',
+    };
+  }
   switch (situation) {
     case 'both-empty':
       return { situation, allowed: false, needsConfirm: false, message: 'クラウドにデータがありません。取得するものがありません。' };
