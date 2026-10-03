@@ -12,6 +12,8 @@ import {
   compareTargets,
   formatShortDate,
   formatYen,
+  productName,
+  recentProductIds,
   recentStoreIds,
   storeName,
   unusualPriceMessage,
@@ -41,6 +43,8 @@ export function PriceNewPage() {
   const targets = useMemo(() => compareTargets(data), [data]);
   // 第16回: 最近価格を登録したお店（最大3件）。店頭で毎回お店を探さなくてよいように、1タップで選べるボタンにする
   const recentStores = useMemo(() => recentStoreIds(data.priceRecords, stores, 3), [data.priceRecords, stores]);
+  // 第17回: 最近価格を登録した商品（最大3件）。同じ商品を繰り返し登録することが多いため
+  const recentProducts = useMemo(() => recentProductIds(data.priceRecords, products, 3), [data.priceRecords, products]);
   const [params] = useSearchParams();
   const notice = useNotice();
 
@@ -167,6 +171,23 @@ export function PriceNewPage() {
               describedBy={shownErrors.productId ? 'product-error' : undefined}
             />
             <FieldError id="product-error" message={shownErrors.productId} />
+            {recentProducts.length > 0 && (
+              <div className="quick-picks" role="group" aria-label="最近登録した商品から選ぶ" data-testid="recent-products">
+                <span className="quick-picks-label">最近：</span>
+                {recentProducts.map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`button button-sm quick-pick${form.productId === id ? ' is-selected' : ''}`}
+                    aria-pressed={form.productId === id}
+                    onClick={() => set('productId', id)}
+                    data-testid={`recent-product-${id}`}
+                  >
+                    {productName(products, id)}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="field">

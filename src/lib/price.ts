@@ -228,11 +228,34 @@ export function targetPriceFor(targetUnitPrice: number | null, quantity: number,
 
 /** 最近価格を登録した店舗（新しい順・重複なし・使用停止の店舗は除く）。価格登録で1タップで選べるようにする */
 export function recentStoreIds(records: PriceRecord[], stores: Store[], limit: number): StoreId[] {
-  const active = new Set(stores.filter((s) => !s.archived).map((s) => s.id));
-  const result: StoreId[] = [];
+  return recentIds(records, (r) => r.storeId, stores, limit);
+}
+
+/**
+ * 最近、価格を登録した商品（新しい順・重複なし・最大 limit 件）。
+ *
+ * 第17回：店頭で同じ商品を何度も登録するため、1タップで選べるようにする。
+ * 専用のデータは持たず、価格履歴から求める（保存データの形は変えない）。
+ * 使用停止・削除された商品は候補に出さない。
+ */
+export function recentProductIds(records: PriceRecord[], products: Product[], limit: number): ProductId[] {
+  return recentIds(records, (r) => r.productId, products, limit);
+}
+
+/** 価格履歴を新しい順にたどって、使える（使用停止でない）ものだけを limit 件集める */
+function recentIds<T extends { id: string; archived?: boolean }>(
+  records: PriceRecord[],
+  pick: (record: PriceRecord) => string,
+  items: T[],
+  limit: number,
+): string[] {
+  // 削除されたものは items に無いので候補に入らない
+  const usable = new Set(items.filter((i) => !i.archived).map((i) => i.id));
+  const result: string[] = [];
   for (const r of [...records].sort((a, b) => b.seq - a.seq)) {
     if (result.length >= limit) break;
-    if (active.has(r.storeId) && !result.includes(r.storeId)) result.push(r.storeId);
+    const id = pick(r);
+    if (usable.has(id) && !result.includes(id)) result.push(id);
   }
   return result;
 }

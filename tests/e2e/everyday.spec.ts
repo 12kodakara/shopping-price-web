@@ -302,3 +302,134 @@ test.describe('販売数量は1以上の整数だけ', () => {
     expect(after).toEqual(before);
   });
 });
+
+// 第17回: 店頭での入力を速くする（最近使った商品のクイック選択・登録後の状態）
+test.describe('最近使った商品から選ぶ', () => {
+  test('★最近登録した商品が新しい順に最大3件出て、押すと選択される', async ({ page }) => {
+    await page.goto('/prices/new');
+    const quick = page.getByTestId('recent-products');
+    await expect(quick).toBeVisible();
+    await expect(quick).toContainText('最近：');
+
+    // サンプルデータの最後の3商品（新しい順）
+    const buttons = quick.getByRole('button');
+    await expect(buttons).toHaveCount(3);
+    await expect(buttons.nth(0)).toHaveText('やさしい麦茶');
+    await expect(buttons.nth(1)).toHaveText('つや姫');
+    await expect(buttons.nth(2)).toHaveText('ムシューダ クローゼット用');
+
+    // 押すと商品が選ばれ、計算結果にその商品が出る
+    await quick.getByTestId('recent-product-P005').click();
+    await expect(quick.getByTestId('recent-product-P005')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('price-result')).toContainText('やさしい麦茶');
+  });
+
+  test('★使用停止にした商品は候補から消える（データは消さない）', async ({ page }) => {
+    // 商品画面で P005 を使用停止にする（このテスト用のブラウザの中だけ）
+    await page.goto('/products');
+    await page.getByRole('button', { name: 'やさしい麦茶を編集' }).click();
+    const form = page.getByRole('form', { name: '商品の編集' });
+    page.once('dialog', (d) => void d.accept());
+    await form.getByRole('button', { name: '使用停止にする' }).click();
+    await expect(page.getByRole('status')).toContainText('使用停止にしました');
+
+    await page.goto('/prices/new');
+    const quick = page.getByTestId('recent-products');
+    await expect(quick.getByTestId('recent-product-P005')).toHaveCount(0);
+    await expect(quick.getByRole('button')).toHaveCount(3); // 次の候補が繰り上がる
+    // 価格履歴は残っている（使用停止は削除ではない）
+    expect((await saved(page)).priceRecords.filter((r) => r.productId === 'P005').length).toBeGreaterThan(0);
+  });
+
+  test('商品の候補と店舗の候補が両方出て、画面からはみ出さない', async ({ page }) => {
+    await page.goto('/prices/new');
+    await expect(page.getByTestId('recent-products')).toBeVisible();
+    await expect(page.getByTestId('recent-stores')).toBeVisible();
+
+    // 横スクロールが出ない
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+
+    // どのボタンも画面幅に収まり、押しやすい大きさ（高さ40px以上）
+    const width = page.viewportSize()?.width ?? 0;
+    for (const group of ['recent-products', 'recent-stores']) {
+      for (const button of await page.getByTestId(group).getByRole('button').all()) {
+        const box = await button.boundingBox();
+        expect(box).not.toBeNull();
+        expect(box!.x + box!.width).toBeLessThanOrEqual(width + 1);
+        expect(box!.height).toBeGreaterThanOrEqual(40);
+      }
+    }
+  });
+});
+
+test.describe('登録したあとの画面の状態', () => {
+  test('★店舗と日付は残り、商品・数量・価格・セール・備考は空になる', async ({ page }) => {
+    await page.goto('/prices/new');
+    await choose(page, 'product', 'P005');
+    await choose(page, 'store', 'S009');
+    await page.locator('#date').fill('2026-09-20');
+    await page.locator('#quantity').fill('6');
+    await page.locator('#price').fill('900');
+    await page.getByLabel('セール価格').check();
+    await page.locator('#note').fill('テスト備考');
+
+    await page.getByRole('button', { name: '登録する' }).click();
+    await expect(page.getByRole('status')).toContainText('価格を登録しました');
+
+    // 残るもの
+    await expect(page.getByTestId('store-combobox').getByRole('combobox')).toHaveValue(/ミスターマックス/);
+    await expect(page.locator('#date')).toHaveValue('2026-09-20');
+    // 消えるもの
+    await expect(page.getByTestId('product-combobox').getByRole('combobox')).toHaveValue('');
+    await expect(page.locator('#quantity')).toHaveValue('');
+    await expect(page.locator('#price')).toHaveValue('');
+    await expect(page.getByLabel('セール価格')).not.toBeChecked();
+    await expect(page.locator('#note')).toHaveValue('');
+  });
+
+  test('★続けて同じ店で別の商品を登録できる（最近の候補も更新される）', async ({ page }) => {
+    await page.goto('/prices/new');
+    await choose(page, 'store', 'S002');
+    await choose(page, 'product', 'P001');
+    await page.locator('#quantity').fill('1');
+    await page.locator('#price').fill('450');
+    await page.getByRole('button', { name: '登録する' }).click();
+    await expect(page.getByRole('status')).toContainText('価格を登録しました');
+
+    // 店舗はそのままなので、商品と数量・価格だけ入れれば登録できる。
+    // いま登録した商品が候補の先頭に来る（候補は履歴から求めているため）
+    await expect(page.getByTestId('recent-products').getByRole('button').first()).toHaveText('サランラップ');
+    await choose(page, 'product', 'P002');
+    await page.locator('#quantity').fill('1');
+    await page.locator('#price').fill('430');
+    // 直後の連打を無視する仕組み（1.5秒）があるので、その時間だけ待ってから押す
+    await page.waitForTimeout(1600);
+    await page.getByRole('button', { name: '登録する' }).click();
+    await expect(page.getByRole('status')).toContainText('価格を登録しました');
+
+    const records = (await saved(page)).priceRecords;
+    expect(records).toHaveLength(12);
+    expect(records.slice(-2).map((r) => [r.productId, r.storeId, r.quantity, r.price])).toEqual([
+      ['P001', 'S002', 1, 450],
+      ['P002', 'S002', 1, 430],
+    ]);
+  });
+
+  test('登録しても、入力途中でキーボードが勝手に開かない（自動でフォーカスしない）', async ({ page }) => {
+    await page.goto('/prices/new');
+    await choose(page, 'product', 'P005');
+    await choose(page, 'store', 'S009');
+    await page.locator('#quantity').fill('6');
+    await page.locator('#price').fill('880');
+    await page.getByRole('button', { name: '登録する' }).click();
+    await expect(page.getByRole('status')).toContainText('価格を登録しました');
+
+    // 入力欄に自動で入らない（スマホでキーボードが開かないようにするため）
+    const focused = await page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null;
+      return el ? `${el.tagName}:${el.getAttribute('type') ?? ''}` : 'なし';
+    });
+    expect(['BODY:', 'BUTTON:button', 'BUTTON:submit', 'なし']).toContain(focused);
+  });
+});
