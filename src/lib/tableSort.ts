@@ -80,3 +80,23 @@ function compare(a: SortValue, b: SortValue): number {
   // numeric: true にすると P1 → P2 → P10 の順になる（文字列のままだと P1 → P10 → P2）
   return String(a).localeCompare(String(b), 'ja', { numeric: true });
 }
+
+/** 並び替えの対象が、数値／文字／あり・なし のどれか（スマホの表示文言を変えるために使う） */
+export type SortKind = 'number' | 'text' | 'flag';
+
+/**
+ * スマホの並び替えボタンに出す文言。
+ * 金額は「安い順／高い順」、文字は「昇順／降順」、あり・なしは「なしから／ありから」と言い分ける。
+ */
+export function directionLabel(kind: SortKind, direction: SortDirection): string {
+  if (kind === 'number') return direction === 'asc' ? '↑ 安い順' : '↓ 高い順';
+  if (kind === 'flag') return direction === 'asc' ? '↑ なしから' : '↓ ありから';
+  return direction === 'asc' ? '↑ 昇順' : '↓ 降順';
+}
+
+/** 押すと反対の並びになることを読み上げで伝える文言 */
+export function directionToggleLabel(kind: SortKind, direction: SortDirection): string {
+  const now = directionLabel(kind, direction).replace(/^[↑↓]\s*/, '');
+  const next = directionLabel(kind, direction === 'asc' ? 'desc' : 'asc').replace(/^[↑↓]\s*/, '');
+  return `いまは${now}。押すと${next}に切り替わります`;
+}

@@ -2627,3 +2627,45 @@ textarea {
   align-items: center;
   gap: 8px;
 }
+
+/* ---------- 第20回: スマホの並び替え（買い物候補） ---------- */
+
+.sort-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.sort-control-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.sort-control-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 画面が狭くてもはみ出さないように、伸び縮みさせる */
+.sort-control-select {
+  flex: 1 1 10rem;
+  min-width: 0;
+  min-height: 44px;
+}
+
+.sort-control-direction {
+  flex: 0 1 auto;
+  min-height: 44px;
+  white-space: nowrap;
+  background: var(--surface);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.sort-control-direction:disabled {
+  color: var(--muted);
+  border-color: var(--line);
+}

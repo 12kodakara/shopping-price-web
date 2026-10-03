@@ -8,7 +8,17 @@ import { useAppData } from '../data/useAppData';
 import { usePersistentFlag } from '../lib/prefs';
 import { buildCompareRows, buildShoppingCandidates, compareTargets, formatYen, storeName, type CompareRow } from '../lib/price';
 import { buildShoppingList, type ShoppingItem } from '../lib/shopping';
-import { ariaSort, nextSortState, noSort, sortMark, sortRows, type SortState } from '../lib/tableSort';
+import {
+  ariaSort,
+  directionLabel,
+  directionToggleLabel,
+  nextSortState,
+  noSort,
+  sortMark,
+  sortRows,
+  type SortKind,
+  type SortState,
+} from '../lib/tableSort';
 import { PC_QUERY, useMediaQuery } from '../lib/useMediaQuery';
 
 export function ShoppingPage() {
@@ -35,6 +45,9 @@ export function ShoppingPage() {
     diff: (r) => r.targetDiff,
     pastLowest: (r) => isPastLowest(r),
   });
+
+  /** いま並び替えに使っている項目の種類（文言を「安い順／昇順」などに切り替えるために使う） */
+  const sortKind = CANDIDATE_COLUMNS.find((c) => c.key === sort.key)?.kind ?? null;
 
   const allDone = progress.total > 0 && progress.remaining === 0;
   const visibleGroups = groups
@@ -162,6 +175,39 @@ export function ShoppingPage() {
           <span>目安以下の商品：<strong data-testid="candidate-count">{candidates.length}</strong>件</span>
           <span>今回買う：<strong data-testid="selected-count">{progress.total}</strong>件</span>
         </div>
+
+        {/* スマホはカード表示で見出しがないため、ここで並び替えを選ぶ（PCは表の見出しで並び替える） */}
+        {!isPc && candidates.length > 0 && (
+          <div className="sort-control" data-testid="candidate-sort-control">
+            <label htmlFor="candidate-sort-select" className="sort-control-label">並び替え</label>
+            <div className="sort-control-row">
+              <select
+                id="candidate-sort-select"
+                className="sort-control-select"
+                value={sort.key ?? ''}
+                onChange={(e) => {
+                  const key = e.target.value as CandidateColumn | '';
+                  setSort(key === '' ? noSort<CandidateColumn>() : { key, direction: 'asc' });
+                }}
+              >
+                <option value="">お得な順（標準）</option>
+                {CANDIDATE_COLUMNS.map((col) => (
+                  <option key={col.key} value={col.key}>{col.label}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="button button-sm sort-control-direction"
+                disabled={sort.key === null}
+                aria-label={sortKind === null ? '並び替える項目を選ぶと使えます' : directionToggleLabel(sortKind, sort.direction)}
+                onClick={() => setSort((current) => ({ ...current, direction: current.direction === 'asc' ? 'desc' : 'asc' }))}
+                data-testid="candidate-sort-direction"
+              >
+                {sortKind === null ? '↕ 並び順' : directionLabel(sortKind, sort.direction)}
+              </button>
+            </div>
+          </div>
+        )}
 
         {candidates.length === 0 ? (
           <p className="card muted" data-testid="no-candidates">目安単価以下の商品はまだありません。価格を登録すると、ここに表示されます。</p>
@@ -320,15 +366,15 @@ function CheckRow({ item, onToggle, onRemove }: { item: ShoppingItem; onToggle: 
 /** 買い物候補の一覧表で並び替えできる列 */
 type CandidateColumn = 'selected' | 'name' | 'category' | 'store' | 'unitPrice' | 'target' | 'diff' | 'pastLowest';
 
-const CANDIDATE_COLUMNS: { key: CandidateColumn; label: string; numeric?: boolean }[] = [
-  { key: 'selected', label: '今回買う' },
-  { key: 'name', label: '商品名' },
-  { key: 'category', label: 'カテゴリ' },
-  { key: 'store', label: '最安店' },
-  { key: 'unitPrice', label: '最安単価', numeric: true },
-  { key: 'target', label: '目安単価', numeric: true },
-  { key: 'diff', label: '目安との差', numeric: true },
-  { key: 'pastLowest', label: '過去最安' },
+const CANDIDATE_COLUMNS: { key: CandidateColumn; label: string; kind: SortKind; numeric?: boolean }[] = [
+  { key: 'selected', label: '今回買う', kind: 'flag' },
+  { key: 'name', label: '商品名', kind: 'text' },
+  { key: 'category', label: 'カテゴリ', kind: 'text' },
+  { key: 'store', label: '最安店', kind: 'text' },
+  { key: 'unitPrice', label: '最安単価', kind: 'number', numeric: true },
+  { key: 'target', label: '目安単価', kind: 'number', numeric: true },
+  { key: 'diff', label: '目安との差', kind: 'number', numeric: true },
+  { key: 'pastLowest', label: '過去最安', kind: 'flag' },
 ];
 
 /** いまの最安単価が、これまでの最安と同じかそれより安いか */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ariaSort, nextSortState, noSort, sortMark, sortRows, type SortState } from './tableSort';
+import { ariaSort, directionLabel, directionToggleLabel, nextSortState, noSort, sortMark, sortRows, type SortState } from './tableSort';
 
 type Column = 'name' | 'price' | 'flag';
 
@@ -109,5 +109,28 @@ describe('並び替え', () => {
     const copy = [...rows];
     sortRows(rows, { key: 'price', direction: 'asc' }, values);
     expect(rows).toEqual(copy);
+  });
+});
+
+// 第20回: スマホの並び替えUIに出す文言
+describe('並び順の文言', () => {
+  it('金額は「安い順／高い順」', () => {
+    expect(directionLabel('number', 'asc')).toBe('↑ 安い順');
+    expect(directionLabel('number', 'desc')).toBe('↓ 高い順');
+  });
+
+  it('文字は「昇順／降順」', () => {
+    expect(directionLabel('text', 'asc')).toBe('↑ 昇順');
+    expect(directionLabel('text', 'desc')).toBe('↓ 降順');
+  });
+
+  it('あり・なしは「なしから／ありから」', () => {
+    expect(directionLabel('flag', 'asc')).toBe('↑ なしから');
+    expect(directionLabel('flag', 'desc')).toBe('↓ ありから');
+  });
+
+  it('読み上げ用に、いまの並びと押したあとの並びを伝える', () => {
+    expect(directionToggleLabel('number', 'asc')).toBe('いまは安い順。押すと高い順に切り替わります');
+    expect(directionToggleLabel('text', 'desc')).toBe('いまは降順。押すと昇順に切り替わります');
   });
 });

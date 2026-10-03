@@ -781,3 +781,116 @@ test.describe('商品一覧（スマホはカードのまま）', () => {
     await expect(page.getByTestId('bottom-nav')).toBeVisible();
   });
 });
+
+// 第20回: スマホのカード表示でも、何順に並んでいるか分かり、並び替えられるようにする
+test.describe('買い物候補の並び替え（スマホ）', () => {
+  test.skip(({ isMobile }) => !isMobile, 'スマホ表示でのみ確認する');
+
+  const names = (page: import('@playwright/test').Page) =>
+    page.getByTestId('candidate-list').locator('> li .item-card-title').allInnerTexts();
+  const prices = async (page: import('@playwright/test').Page) => {
+    const texts = await page.getByTestId('candidate-list').locator('> li dl > div:nth-child(2) dd').allInnerTexts();
+    return texts.map((t) => Number(t.replace(/[^0-9.]/g, '')));
+  };
+
+  test('★並び替えUIが出て、最初は「お得な順（標準）」', async ({ page }) => {
+    await page.goto('/shopping');
+    const control = page.getByTestId('candidate-sort-control');
+    await expect(control).toBeVisible();
+    await expect(control).toContainText('並び替え');
+    await expect(page.getByLabel('並び替え', { exact: true })).toHaveValue('');
+    // 項目を選ぶまでは向きのボタンは使えない
+    await expect(page.getByTestId('candidate-sort-direction')).toBeDisabled();
+    await expect(page.getByTestId('candidate-sort-direction')).toContainText('並び順');
+  });
+
+  test('★最安単価を選ぶと「安い順」になり、押すと「高い順」に変わる', async ({ page }) => {
+    await page.goto('/shopping');
+    await page.getByLabel('並び替え', { exact: true }).selectOption('unitPrice');
+
+    const direction = page.getByTestId('candidate-sort-direction');
+    await expect(direction).toContainText('安い順');
+    const asc = await prices(page);
+    expect(asc).toEqual([...asc].sort((a, b) => a - b));
+
+    await direction.click();
+    await expect(direction).toContainText('高い順');
+    const desc = await prices(page);
+    expect(desc).toEqual([...desc].sort((a, b) => b - a));
+    // 画面の表示と実際の並びが食い違わない
+    expect(desc[0]).toBeGreaterThanOrEqual(desc[desc.length - 1]);
+  });
+
+  test('★商品名など別の項目にも変えられ、文字の項目は「昇順／降順」と出る', async ({ page }) => {
+    await page.goto('/shopping');
+    await page.getByLabel('並び替え', { exact: true }).selectOption('name');
+    const direction = page.getByTestId('candidate-sort-direction');
+    await expect(direction).toContainText('昇順');
+    const asc = await names(page);
+    expect(asc).toEqual([...asc].sort((a, b) => a.localeCompare(b, 'ja')));
+
+    await direction.click();
+    await expect(direction).toContainText('降順');
+    expect(await names(page)).toEqual([...asc].reverse());
+  });
+
+  test('「お得な順（標準）」に戻せる', async ({ page }) => {
+    await page.goto('/shopping');
+    const before = await names(page);
+    await page.getByLabel('並び替え', { exact: true }).selectOption('name');
+    expect(await names(page)).not.toEqual(before);
+    await page.getByLabel('並び替え', { exact: true }).selectOption('');
+    expect(await names(page)).toEqual(before);
+    await expect(page.getByTestId('candidate-sort-direction')).toBeDisabled();
+  });
+
+  test('★並び替えても「今回買う」と「価格を登録」は今までどおり使える', async ({ page }) => {
+    await page.goto('/shopping');
+    await page.getByLabel('並び替え', { exact: true }).selectOption('unitPrice');
+
+    const card = page.getByTestId('candidate-P005');
+    const buy = card.getByRole('button', { name: /今回買う/ });
+    const selected = page.getByTestId('selected-count');
+    const before = Number(await selected.innerText());
+
+    await buy.click();
+    await expect(buy).toHaveText('✓ 今回買う');
+    await expect(selected).toHaveText(String(before + 1));
+    await expect(card).toHaveClass(/card-selected/);
+
+    // 並び替えを変えても選択は保たれる
+    await page.getByLabel('並び替え', { exact: true }).selectOption('name');
+    await expect(page.getByTestId('candidate-P005').getByRole('button', { name: /今回買う/ })).toHaveText('✓ 今回買う');
+
+    await page.getByTestId('candidate-P005').getByRole('link', { name: '価格を登録' }).click();
+    await expect(page).toHaveURL(/\/prices\/new\?product=P005/);
+  });
+
+  test('並び替えUIを使っても横スクロールが出ず、押しやすい大きさ', async ({ page }) => {
+    await page.goto('/shopping');
+    for (const value of ['', 'unitPrice', 'name', 'diff', 'selected']) {
+      await page.getByLabel('並び替え', { exact: true }).selectOption(value);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(1);
+    }
+    for (const testId of ['candidate-sort-direction']) {
+      const box = await page.getByTestId(testId).boundingBox();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+    const select = await page.getByLabel('並び替え', { exact: true }).boundingBox();
+    expect(select!.height).toBeGreaterThanOrEqual(44);
+    expect(select!.x + select!.width).toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) + 1);
+  });
+});
+
+test.describe('買い物候補の並び替え（PCには専用UIを出さない）', () => {
+  test.skip(({ isMobile }) => !!isMobile, 'PC表示でのみ確認する');
+
+  test('★PCではスマホ用の並び替えUIを出さず、見出しの並び替えがそのまま使える', async ({ page }) => {
+    await page.goto('/shopping');
+    await expect(page.getByTestId('candidate-sort-control')).toHaveCount(0);
+
+    await page.getByTestId('candidate-sort-unitPrice').click();
+    await expect(page.getByRole('columnheader', { name: /最安単価/ })).toHaveAttribute('aria-sort', 'ascending');
+  });
+});
