@@ -2545,3 +2545,60 @@ textarea {
   color: var(--warn);
   font-weight: 700;
 }
+
+/* ---------- 第19回: 買い物候補の一覧表（PC） ---------- */
+
+/* 一画面に多く並べるため、行の高さを抑える */
+.candidate-table th,
+.candidate-table td {
+  padding: 8px 10px;
+}
+
+/* 見出しを押すと並び替え。押せることが分かるように下線なしのボタンにする */
+.sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.sort-button:hover {
+  color: var(--primary);
+}
+
+.sort-button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.candidate-table th.num .sort-button {
+  justify-content: flex-end;
+}
+
+.sort-mark {
+  font-size: 0.85em;
+  color: var(--primary);
+}
+
+/* 「今回買う」を選んだ行は、一覧を見ただけで分かるように薄く色を付ける */
+.candidate-table tbody tr.row-selected {
+  background: var(--good-soft);
+}
+
+.candidate-table tbody tr.row-selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--good);
+}
+
+/* 金額は桁をそろえて比べやすくする */
+.candidate-table .num {
+  font-variant-numeric: tabular-nums;
+}

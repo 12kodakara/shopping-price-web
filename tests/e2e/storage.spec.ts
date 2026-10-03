@@ -91,7 +91,7 @@ test.describe('価格登録', () => {
     // 買い物候補: 差が一番大きいので先頭
     await page.goto('/shopping');
     await expect(page.getByTestId('candidate-count')).toHaveText('5');
-    await expect(page.getByTestId('candidate-list').locator('> li').first()).toContainText('サランラップ');
+    await expect(page.getByTestId('candidate-list').locator('> li, > tr').first()).toContainText('サランラップ');
 
     // 価格履歴: 現在398円、前回433円、前回比 −35円、記録3件
     await page.goto('/history?product=P001');

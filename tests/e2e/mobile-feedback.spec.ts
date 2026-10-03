@@ -225,7 +225,9 @@ test.describe('買い物候補カード', () => {
     await expect(page.locator('#product')).toHaveValue('やさしい麦茶（P005）');
   });
 
-  test('スマホではコンパクト（情報は同じ）', async ({ page }, info) => {
+  test('スマホではコンパクト（情報は同じ）', async ({ page, isMobile }, info) => {
+    // 第19回: PC は一覧表に変えたので、カードの確認はスマホ表示のときだけ行う
+    test.skip(!isMobile, 'PC は一覧表（everyday.spec.ts で確認）');
     await page.goto('/shopping');
     const card = page.getByTestId('candidate-P005');
     for (const text of ['やさしい麦茶', '飲料', '最安店', 'ミスターマックス', '最安単価', '140', '目安単価', '160', '目安より20円安い', '過去最安']) {

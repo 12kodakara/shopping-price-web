@@ -317,7 +317,7 @@ test.describe('大量データ', () => {
     await page.goto('/shopping');
     const count = Number(await page.getByTestId('candidate-count').innerText());
     expect(count).toBeGreaterThan(50);
-    await expect(page.getByTestId('candidate-list').locator('> li')).toHaveCount(count);
+    await expect(page.getByTestId('candidate-list').locator('> li, > tr')).toHaveCount(count);
     await expect(page.getByRole('navigation', { name: 'ページ' })).toHaveCount(0);
   });
 

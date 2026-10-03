@@ -190,7 +190,7 @@ test.describe('その他の画面', () => {
 
   test('買い物候補: 麦茶が先頭、「今回買う」が切り替わる', async ({ page }) => {
     await page.goto('/shopping');
-    const first = page.getByTestId('candidate-list').locator('> li').first();
+    const first = page.getByTestId('candidate-list').locator('> li, > tr').first();
     await expect(first).toContainText('やさしい麦茶');
     await expect(first).toContainText('ミスターマックス');
     await expect(first).toContainText('目安より20円安い');

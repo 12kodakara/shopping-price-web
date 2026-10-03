@@ -6,8 +6,10 @@ import { repository } from '../data/repository';
 import type { ProductId } from '../data/types';
 import { useAppData } from '../data/useAppData';
 import { usePersistentFlag } from '../lib/prefs';
-import { buildCompareRows, buildShoppingCandidates, compareTargets, formatYen, storeName } from '../lib/price';
+import { buildCompareRows, buildShoppingCandidates, compareTargets, formatYen, storeName, type CompareRow } from '../lib/price';
 import { buildShoppingList, type ShoppingItem } from '../lib/shopping';
+import { ariaSort, nextSortState, noSort, sortMark, sortRows, type SortState } from '../lib/tableSort';
+import { PC_QUERY, useMediaQuery } from '../lib/useMediaQuery';
 
 export function ShoppingPage() {
   const data = useAppData();
@@ -19,6 +21,20 @@ export function ShoppingPage() {
   const listed = new Set(groups.flatMap((g) => g.items.map((i) => i.product.id)));
   const [hidePurchased, setHidePurchased] = usePersistentFlag('hide-purchased', false);
   const [confirmReset, setConfirmReset] = useState(false);
+
+  // 第19回: 買い物候補を一覧表（PC）とコンパクトなカード（スマホ）で出し分ける
+  const isPc = useMediaQuery(PC_QUERY);
+  const [sort, setSort] = useState<SortState<CandidateColumn>>(noSort<CandidateColumn>());
+  const candidateRows = sortRows(candidates, sort, {
+    selected: (r) => listed.has(r.product.id),
+    name: (r) => r.product.name,
+    category: (r) => r.product.category,
+    store: (r) => (r.cheapest ? storeName(stores, r.cheapest.storeId) : null),
+    unitPrice: (r) => r.cheapest?.unitPrice ?? null,
+    target: (r) => r.product.targetUnitPrice,
+    diff: (r) => r.targetDiff,
+    pastLowest: (r) => isPastLowest(r),
+  });
 
   const allDone = progress.total > 0 && progress.remaining === 0;
   const visibleGroups = groups
@@ -149,9 +165,68 @@ export function ShoppingPage() {
 
         {candidates.length === 0 ? (
           <p className="card muted" data-testid="no-candidates">目安単価以下の商品はまだありません。価格を登録すると、ここに表示されます。</p>
+        ) : isPc ? (
+          /* PC: 一覧表。縦に長くならず、金額を並べて比べられる */
+          <div className="card table-wrap">
+            <table className="table candidate-table" data-testid="candidate-table">
+              <thead>
+                <tr>
+                  {CANDIDATE_COLUMNS.map((col) => (
+                    <th
+                      key={col.key}
+                      scope="col"
+                      className={col.numeric ? 'num' : undefined}
+                      aria-sort={ariaSort(sort, col.key)}
+                    >
+                      <button
+                        type="button"
+                        className="sort-button"
+                        onClick={() => setSort((current) => nextSortState(current, col.key))}
+                        data-testid={`candidate-sort-${col.key}`}
+                      >
+                        {col.label}
+                        <span className="sort-mark" aria-hidden="true">{sortMark(sort, col.key)}</span>
+                      </button>
+                    </th>
+                  ))}
+                  <th scope="col">操作</th>
+                </tr>
+              </thead>
+              <tbody data-testid="candidate-list">
+                {candidateRows.map((r) => {
+                  const isSelected = listed.has(r.product.id);
+                  return (
+                    <tr key={r.product.id} data-testid={`candidate-${r.product.id}`} className={isSelected ? 'row-selected' : undefined}>
+                      <td>
+                        <button
+                          type="button"
+                          className={`button button-sm button-buy ${isSelected ? 'button-added' : 'button-primary'}`}
+                          aria-pressed={isSelected}
+                          onClick={() => toggleSelected(r.product.id)}
+                        >
+                          {isSelected ? '✓ 今回買う' : '＋ 今回買う'}
+                        </button>
+                      </td>
+                      <td>{r.product.name}</td>
+                      <td className="muted small">{r.product.category}</td>
+                      <td>{r.cheapest ? storeName(stores, r.cheapest.storeId) : '—'}</td>
+                      <td className="num"><Price value={r.cheapest?.unitPrice ?? null} unit={r.product.unit} size="sm" /></td>
+                      <td className="num"><Price value={r.product.targetUnitPrice} unit={r.product.unit} size="sm" /></td>
+                      <td className="num"><DiffBadge diff={r.targetDiff} /></td>
+                      <td>{isPastLowest(r) ? <Badge kind="best">過去最安</Badge> : <span className="muted">—</span>}</td>
+                      <td>
+                        <Link to={`/prices/new?product=${r.product.id}`} className="button button-ghost button-sm">価格を登録</Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         ) : (
+          /* スマホ: 横に広い表は見づらいので、1商品1枚のコンパクトなカード */
           <ul className="card-list" data-testid="candidate-list">
-            {candidates.map((r) => {
+            {candidateRows.map((r) => {
               const isSelected = listed.has(r.product.id);
               return (
                 <li key={r.product.id} data-testid={`candidate-${r.product.id}`} className={`card item-card card-good${isSelected ? ' card-selected' : ''}`}>
@@ -175,7 +250,7 @@ export function ShoppingPage() {
                   </dl>
                   <div className="chips">
                     <DiffBadge diff={r.targetDiff} />
-                    {r.cheapest && r.pastLowest !== null && r.cheapest.unitPrice <= r.pastLowest && <Badge kind="best">過去最安</Badge>}
+                    {isPastLowest(r) && <Badge kind="best">過去最安</Badge>}
                   </div>
                   <div className="card-actions candidate-actions">
                     {/* この画面の主な操作は「今回買う」（買い物リストへの追加）。押した後は控えめな表示に変わる */}
@@ -240,4 +315,23 @@ function CheckRow({ item, onToggle, onRemove }: { item: ShoppingItem; onToggle: 
       )}
     </li>
   );
+}
+
+/** 買い物候補の一覧表で並び替えできる列 */
+type CandidateColumn = 'selected' | 'name' | 'category' | 'store' | 'unitPrice' | 'target' | 'diff' | 'pastLowest';
+
+const CANDIDATE_COLUMNS: { key: CandidateColumn; label: string; numeric?: boolean }[] = [
+  { key: 'selected', label: '今回買う' },
+  { key: 'name', label: '商品名' },
+  { key: 'category', label: 'カテゴリ' },
+  { key: 'store', label: '最安店' },
+  { key: 'unitPrice', label: '最安単価', numeric: true },
+  { key: 'target', label: '目安単価', numeric: true },
+  { key: 'diff', label: '目安との差', numeric: true },
+  { key: 'pastLowest', label: '過去最安' },
+];
+
+/** いまの最安単価が、これまでの最安と同じかそれより安いか */
+function isPastLowest(row: CompareRow): boolean {
+  return row.cheapest !== null && row.pastLowest !== null && row.cheapest.unitPrice <= row.pastLowest;
 }

@@ -249,7 +249,7 @@ test.describe('価格記録の編集・削除', () => {
     await expect(row).toContainText('目安より2円安い');
 
     await page.goto('/shopping');
-    await expect(page.getByTestId('candidate-list').locator('> li').first()).toContainText('クレラップ');
+    await expect(page.getByTestId('candidate-list').locator('> li, > tr').first()).toContainText('クレラップ');
     await expect(page.getByTestId('candidate-P005')).toContainText('ドン・キホーテ');
   });
 
