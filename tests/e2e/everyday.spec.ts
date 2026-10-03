@@ -100,7 +100,7 @@ test.describe('価格登録の境界値', () => {
     await page.locator('#quantity').fill('0');
     await page.locator('#price').fill('100');
     await page.getByRole('button', { name: '登録する' }).click();
-    await expect(page.locator('#quantity-error')).toContainText('0より大きい');
+    await expect(page.locator('#quantity-error')).toContainText('1以上の整数');
     // 上限+1円
     await page.locator('#quantity').fill('1');
     await page.locator('#price').fill('1000001');
@@ -226,5 +226,79 @@ test.describe('使用停止・削除・更新の見分け（回帰確認）', ()
     expect(archive.bg).toBe('rgb(255, 246, 224)'); // 薄い注意色
     expect(remove.color).toBe('rgb(179, 38, 30)'); // 赤
     expect(new Set([update.bg, archive.bg, remove.bg]).size).toBe(3);
+  });
+});
+
+// 第16回 追加修正：販売数量は「1本」「6本」のような個数。小数は入力ミスとして扱う
+test.describe('販売数量は1以上の整数だけ', () => {
+  test('★小数（1.5）はエラーになり、単価も出ず、確認ダイアログも出ず、登録もされない', async ({ page }) => {
+    await page.goto('/prices/new');
+    await choose(page, 'product', 'P005');
+    await choose(page, 'store', 'S009');
+    await page.locator('#quantity').fill('1.5');
+    await page.locator('#price').fill('840');
+
+    // 単価は出さない（840 ÷ 1.5 = 560円/本 をもっともらしく見せない）
+    await expect(page.getByTestId('price-result')).toContainText('販売数量と販売価格を入力すると単価を計算します');
+    await expect(page.getByTestId('price-result')).not.toContainText('560');
+
+    // 確認ダイアログが出たらテストを失敗させる（出ないことの確認）
+    let dialogShown = false;
+    page.on('dialog', (d) => {
+      dialogShown = true;
+      void d.dismiss();
+    });
+
+    await page.getByRole('button', { name: '登録する' }).click();
+    await expect(page.locator('#quantity-error')).toContainText('販売数量は1以上の整数を入力してください');
+    await expect(page.getByRole('status')).toContainText('未入力または正しくない項目があります：販売数量');
+    expect(dialogShown).toBe(false);
+    expect((await saved(page)).priceRecords).toHaveLength(10);
+  });
+
+  test('★6（整数）なら単価140円/本で登録できる', async ({ page }) => {
+    await page.goto('/prices/new');
+    await choose(page, 'product', 'P005');
+    await choose(page, 'store', 'S009');
+    await page.locator('#quantity').fill('6');
+    await page.locator('#price').fill('840');
+    await expect(page.getByTestId('price-result')).toContainText('140');
+
+    await page.getByRole('button', { name: '登録する' }).click();
+    await expect(page.getByRole('status')).toContainText('価格を登録しました');
+    const records = (await saved(page)).priceRecords;
+    expect(records).toHaveLength(11);
+    expect(records[records.length - 1]).toMatchObject({ quantity: 6, price: 840 });
+  });
+
+  test('0・マイナスも同じ案内になる', async ({ page }) => {
+    await page.goto('/prices/new');
+    await choose(page, 'product', 'P005');
+    await choose(page, 'store', 'S009');
+    await page.locator('#price').fill('840');
+
+    for (const bad of ['0', '-1', '0.5', '2.3']) {
+      await page.locator('#quantity').fill(bad);
+      await page.getByRole('button', { name: '登録する' }).click();
+      await expect(page.locator('#quantity-error')).toContainText('販売数量は1以上の整数を入力してください');
+    }
+    expect((await saved(page)).priceRecords).toHaveLength(10);
+  });
+
+  test('★価格履歴の修正でも小数にはできない（元の記録はそのまま）', async ({ page }) => {
+    await page.goto('/history?product=P005');
+    await page.getByRole('button', { name: /（R010）を修正/ }).click();
+    const form = page.getByRole('form', { name: '価格記録の修正' });
+    await expect(form).toBeVisible();
+
+    const before = (await saved(page)).priceRecords.find((r) => r.id === 'R010');
+    await form.locator('#rec-quantity').fill('1.5');
+    await expect(page.getByTestId('record-editor-unit-price')).toContainText('—');
+    await form.getByRole('button', { name: '更新する' }).click();
+    await expect(page.locator('#rec-quantity-error')).toContainText('販売数量は1以上の整数を入力してください');
+
+    // 保存データは変わっていない
+    const after = (await saved(page)).priceRecords.find((r) => r.id === 'R010');
+    expect(after).toEqual(before);
   });
 });

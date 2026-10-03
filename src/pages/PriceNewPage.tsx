@@ -17,7 +17,7 @@ import {
   unusualPriceMessage,
 } from '../lib/price';
 import { localDateString } from '../lib/date';
-import { hasErrors, validatePriceForm, type PriceForm } from '../lib/validation';
+import { hasErrors, isValidQuantity, validatePriceForm, type PriceForm } from '../lib/validation';
 
 const today = () => localDateString();
 
@@ -72,7 +72,8 @@ export function PriceNewPage() {
   const product = products.find((p) => p.id === form.productId);
   const qty = value.quantity;
   const yen = value.price;
-  const unitPrice = product && qty > 0 && yen > 0 ? calcUnitPrice(yen, qty, product.unitAmount) : null;
+  // 販売数量が「1以上の整数」でないときは単価を出さない（異常値の確認にも進ませない）
+  const unitPrice = product && isValidQuantity(qty) && yen > 0 ? calcUnitPrice(yen, qty, product.unitAmount) : null;
   const diff = product ? calcDiff(unitPrice, product.targetUnitPrice) : null;
 
   const compareRow = useMemo(() => (product ? buildCompareRows([product], targets.records)[0] : null), [product, targets.records]);
@@ -213,7 +214,10 @@ export function PriceNewPage() {
                 <input
                   id="quantity"
                   type="text"
-                  inputMode="decimal"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  step={1}
+                  min={1}
                   autoComplete="off"
                   placeholder="例: 6"
                   value={form.quantity}

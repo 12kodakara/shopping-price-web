@@ -259,7 +259,7 @@ test.describe('価格記録の編集・削除', () => {
     await form.getByLabel('販売数量').fill('0');
     await form.getByLabel('販売価格').fill('');
     await form.getByRole('button', { name: '更新する' }).click();
-    await expect(page.locator('#rec-quantity-error')).toContainText('0より大きい');
+    await expect(page.locator('#rec-quantity-error')).toContainText('1以上の整数');
     await expect(page.locator('#rec-price-error')).toContainText('販売価格を入力してください');
     expect(await rawSaved(page)).toBe(before);
   });

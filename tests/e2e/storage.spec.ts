@@ -132,7 +132,7 @@ test.describe('価格登録', () => {
     await page.locator('#price').fill('-100');
     await page.locator('#date').fill('');
     await page.getByRole('button', { name: '登録する' }).click();
-    await expect(page.locator('#quantity-error')).toContainText('0より大きい');
+    await expect(page.locator('#quantity-error')).toContainText('1以上の整数');
     await expect(page.locator('#price-error')).toContainText('0より大きい');
     await expect(page.locator('#date-error')).toBeVisible();
     await expect(page.locator('#product-error')).toHaveCount(0);

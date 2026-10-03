@@ -15,7 +15,7 @@ import {
   unusualPriceRatio,
 } from './price';
 import { buildShoppingList } from './shopping';
-import { parseNumber, PRICE_MAX, QUANTITY_MAX, validatePriceForm } from './validation';
+import { QUANTITY_ERROR, parseNumber, PRICE_MAX, QUANTITY_MAX, validatePriceForm } from './validation';
 
 // 第16回: 普段使いの改善（入力チェック・単価計算の監査・打ち間違い対策・最近使ったお店・値札表示）
 
@@ -61,12 +61,13 @@ describe('価格入力のチェック（許可する値・禁止する値）', (
     expect(parseNumber('1e3')).toBeNaN();
   });
 
-  it('数量は小数を許可する（0.5kg など）。0・負数・空欄・極端に大きい値は登録できない', () => {
-    expect(quantityError('0.5')).toBeUndefined();
-    expect(quantityError('２．５')).toBeUndefined();
+  // 第16回 追加修正：販売数量は「1本」「6本」「12個」のような個数なので、小数は入力ミスとして扱う
+  it('★数量は1以上の整数だけ。小数・0・負数・空欄・極端に大きい値は登録できない', () => {
+    for (const ok of ['1', '2', '6', '12', '24', '100', '１２']) expect(quantityError(ok)).toBeUndefined();
+    for (const ng of ['0.5', '1.5', '2.3', '6.1', '０．５', '２．５']) expect(quantityError(ng)).toBe(QUANTITY_ERROR);
+    expect(quantityError('0')).toBe(QUANTITY_ERROR);
+    expect(quantityError('-1')).toBe(QUANTITY_ERROR);
     expect(quantityError('')).toBe('販売数量を入力してください');
-    expect(quantityError('0')).toContain('0より大きい');
-    expect(quantityError('-1')).toContain('0より大きい');
     expect(quantityError(String(QUANTITY_MAX + 1))).toContain('大きすぎます');
     expect(quantityError('abc')).toBe('販売数量は数字で入力してください');
   });
@@ -78,8 +79,8 @@ describe('価格入力のチェック（許可する値・禁止する値）', (
     expect(priceError('1000001')).toContain('大きすぎます');
     expect(quantityError('1')).toBeUndefined();
     expect(quantityError(String(QUANTITY_MAX))).toBeUndefined();
-    expect(quantityError('0')).toContain('0より大きい');
-    expect(quantityError('0.0')).toContain('0より大きい');
+    expect(quantityError('0')).toBe(QUANTITY_ERROR);
+    expect(quantityError('0.0')).toBe(QUANTITY_ERROR); // 0.0 は 0 と同じ扱い
   });
 
   it('空白だけ・NaN という文字は「入力してください」「数字で」で区別する', () => {

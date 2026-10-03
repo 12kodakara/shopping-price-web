@@ -42,6 +42,20 @@ export interface PriceInput {
 
 export type PriceField = 'productId' | 'storeId' | 'date' | 'quantity' | 'price';
 
+/** 販売数量のエラー文（0以下も小数もこの1文にそろえる） */
+export const QUANTITY_ERROR = '販売数量は1以上の整数を入力してください';
+
+/**
+ * 販売数量として使える値か。
+ *
+ * 「1本」「6本」「12個」のように実際の個数を入れる欄なので、小数は入力ミスとして扱う
+ * （例: 1.5本。840円 ÷ 1.5 = 560円/本 のような、もっともらしい単価が出てしまうため）。
+ * 画面の表示・保存の直前・クラウドへ送る前の、すべてでこの判定を使う。
+ */
+export function isValidQuantity(quantity: number): boolean {
+  return Number.isInteger(quantity) && quantity >= 1;
+}
+
 export function priceInputErrors(input: PriceInput): FieldErrors<PriceField> {
   const e: FieldErrors<PriceField> = {};
   if (!input.productId) e.productId = '商品を選んでください';
@@ -49,7 +63,7 @@ export function priceInputErrors(input: PriceInput): FieldErrors<PriceField> {
   if (!input.date) e.date = '日付を入力してください';
   else if (!isValidDate(input.date)) e.date = '日付が正しくありません';
   if (Number.isNaN(input.quantity)) e.quantity = '販売数量を入力してください';
-  else if (!(input.quantity > 0)) e.quantity = '販売数量は0より大きい数を入力してください';
+  else if (!isValidQuantity(input.quantity)) e.quantity = QUANTITY_ERROR;
   else if (input.quantity > QUANTITY_MAX) e.quantity = `販売数量が大きすぎます（${QUANTITY_MAX.toLocaleString('ja-JP')}まで）`;
   if (Number.isNaN(input.price)) e.price = '販売価格を入力してください';
   else if (!(input.price > 0)) e.price = '販売価格は0より大きい数を入力してください';

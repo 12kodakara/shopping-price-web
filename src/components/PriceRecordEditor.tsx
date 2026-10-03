@@ -3,7 +3,7 @@ import { repository } from '../data/repository';
 import type { PriceRecord, Product, Store } from '../data/types';
 import { useAppData } from '../data/useAppData';
 import { calcUnitPrice, compareTargets, formatYen, unusualPriceMessage } from '../lib/price';
-import { hasErrors, validatePriceForm, type PriceForm } from '../lib/validation';
+import { hasErrors, isValidQuantity, validatePriceForm, type PriceForm } from '../lib/validation';
 import { errorProps, FieldError, Price } from './ui';
 
 function toForm(r: PriceRecord): PriceForm {
@@ -72,7 +72,8 @@ export function PriceRecordEditor({
   const productOptions = products.filter((p) => !p.archived || p.id === record.productId);
   const storeOptions = stores.filter((s) => !s.archived || s.id === record.storeId);
   const product = products.find((p) => p.id === form.productId);
-  const unitPrice = product && value.quantity > 0 && value.price > 0 ? calcUnitPrice(value.price, value.quantity, product.unitAmount) : null;
+  // 登録画面と同じく、販売数量が「1以上の整数」でなければ単価を出さない
+  const unitPrice = product && isValidQuantity(value.quantity) && value.price > 0 ? calcUnitPrice(value.price, value.quantity, product.unitAmount) : null;
   // 第16回: 打ち間違いの確認は価格登録と同じ判定。修正前の自分自身とは比べない
   const data = useAppData();
   const unusualMessage = product ? unusualPriceMessage(product, form.storeId, unitPrice, compareTargets(data).records, record.id) : null;
@@ -136,7 +137,7 @@ export function PriceRecordEditor({
         <div className="field">
           <label htmlFor="rec-quantity">販売数量 <span className="req">必須</span></label>
           <div className="input-affix">
-            <input id="rec-quantity" type="text" inputMode="decimal" autoComplete="off" value={form.quantity}
+            <input id="rec-quantity" type="text" inputMode="numeric" pattern="[0-9]*" step={1} min={1} autoComplete="off" value={form.quantity}
               onChange={(e) => set('quantity', e.target.value)} {...errorProps('rec-quantity', shown.quantity)} />
             <span className="affix">{product?.unit ?? '単位'}</span>
           </div>

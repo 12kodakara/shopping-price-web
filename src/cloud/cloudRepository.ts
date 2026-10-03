@@ -6,6 +6,7 @@
 // ・ログインしていなければ何もしない（RLS により、そもそもクラウド側も拒否する）。
 
 import { loadAppData } from '../data/schema';
+import { isValidQuantity } from '../lib/validation';
 import type { AppData } from '../data/types';
 import {
   countsOf,
@@ -260,6 +261,18 @@ async function writeAllTables(client: Client, userId: string, rows: TableRows): 
 async function replaceCloudDataInner(data: AppData): Promise<CloudResult<DataCounts>> {
   const checked = loadAppData(data);
   if (!checked.ok) return { ok: false, error: `この端末のデータを確認できませんでした（${checked.reason}）` };
+
+  // 販売数量は「1本」「6本」のような個数なので、小数や0以下のものはクラウドへ送らない。
+  // いまの画面では入力できないが、古いデータや手で編集したデータが混ざっていないかをここでも確かめる。
+  const badQuantity = checked.data.priceRecords.find((r) => !isValidQuantity(r.quantity));
+  if (badQuantity) {
+    return {
+      ok: false,
+      error:
+        `価格履歴 ${badQuantity.id} の販売数量（${badQuantity.quantity}）が正しくありません。` +
+        '販売数量は1以上の整数です。価格履歴の「修正」で直してから、もう一度保存してください。',
+    };
+  }
 
   const session = await requireSession();
   if (!session.ok) return session;
