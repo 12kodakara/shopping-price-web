@@ -146,7 +146,7 @@ export function PriceNewPage() {
               {savedProduct.category}・{storeName(stores, saved.storeId)}・{formatYen(saved.quantity)}
               {savedProduct.unit} {formatYen(saved.price)}円
             </span>
-            <Price value={savedUnitPrice} unit={savedProduct.unit} />
+            <Price value={savedUnitPrice} unit={savedProduct.unit} unitAmount={savedProduct.unitAmount} />
           </div>
           <div className="card-actions">
             <Link to={`/history?product=${saved.productId}&edit=${saved.id}`} className="button button-ghost">修正する</Link>
@@ -297,11 +297,11 @@ export function PriceNewPage() {
               <div className="result-grid">
                 <div className="result-main">
                   <span className="result-label">{product.unitAmount}{product.unit}あたり</span>
-                  <Price value={unitPrice} size="lg" />
+                  <Price value={unitPrice} unit={product.unit} unitAmount={product.unitAmount} size="lg" />
                 </div>
                 <div>
                   <span className="result-label">目安価格</span>
-                  <Price value={product.targetUnitPrice} />
+                  <Price value={product.targetUnitPrice} unit={product.unit} unitAmount={product.unitAmount} />
                 </div>
               </div>
 

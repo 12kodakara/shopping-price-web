@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mockPriceRecords, mockProducts, mockStores } from '../data/mockData';
 import type { PriceRecord, Product } from '../data/types';
-import { recentProductIds, recentStoreIds } from './price';
+import { calcUnitPrice, perUnitPrice, recentProductIds, recentStoreIds, unitPriceLabel } from './price';
 
 // 第17回: 店頭で素早く登録するための「最近使った商品」。
 // 専用のデータは持たず、価格履歴から求める（保存データの形は変えない）。
@@ -88,5 +88,41 @@ describe('最近使ったお店（第16回の仕様を維持しているか）',
     ];
     expect(recentProductIds(records, mockProducts, 3)).toEqual(['P002', 'P001']);
     expect(recentStoreIds(records, mockStores, 3)).toEqual(['S002', 'S001']);
+  });
+});
+
+// 第21回: 基準数量が2以上の商品で、単価の意味が分かるようにする
+describe('単価の単位の書き方と、参考の1単位あたり', () => {
+  it('★基準数量が1なら、これまでどおり「円/本」', () => {
+    expect(unitPriceLabel('本', 1)).toBe('円/本');
+    expect(unitPriceLabel('kg', 1)).toBe('円/kg');
+  });
+
+  it('★基準数量が2以上なら「円/12袋」と書く（1袋の値段と取り違えないため）', () => {
+    expect(unitPriceLabel('袋', 12)).toBe('円/12袋');
+    expect(unitPriceLabel('本', 6)).toBe('円/6本');
+  });
+
+  it('単位が無いときは「円」だけ', () => {
+    expect(unitPriceLabel(undefined, 12)).toBe('円');
+  });
+
+  it('★参考の1単位あたりを出す（12袋あたり997円 → 1袋あたり83.08円）', () => {
+    expect(perUnitPrice(997, 12)).toBe(83.08);
+    expect(perUnitPrice(1798, 12)).toBe(149.83);
+  });
+
+  it('基準数量が1のときは参考単価を出さない（同じ値をくり返さない）', () => {
+    expect(perUnitPrice(140, 1)).toBeNull();
+    expect(perUnitPrice(140)).toBeNull();
+  });
+
+  it('金額が無いときは参考単価も無い', () => {
+    expect(perUnitPrice(null, 12)).toBeNull();
+  });
+
+  it('既存の単価計算は変えていない（12袋997円 → 12袋あたり997円）', () => {
+    expect(calcUnitPrice(997, 12, 12)).toBe(997);
+    expect(calcUnitPrice(840, 6, 1)).toBe(140);
   });
 });

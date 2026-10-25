@@ -164,7 +164,7 @@ export function PriceRecordEditor({
 
       <div className="record-editor-preview" data-testid="record-editor-unit-price">
         <span className="result-label">修正後の単価（{product ? `${product.unitAmount}${product.unit}あたり` : '—'}）</span>
-        <Price value={unitPrice} unit={product?.unit} />
+        <Price value={unitPrice} unit={product?.unit} unitAmount={product?.unitAmount} />
       </div>
       {unusualMessage && (
         <p className="price-warning" role="alert" data-testid="record-price-warning">

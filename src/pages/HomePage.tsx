@@ -57,7 +57,7 @@ export function HomePage() {
                   </span>
                 </div>
                 <div className="list-side">
-                  <Price value={unitPrice} unit={product.unit} />
+                  <Price value={unitPrice} unit={product.unit} unitAmount={product.unitAmount} />
                   {isGood && <Badge kind="good">目安以下</Badge>}
                 </div>
               </li>

@@ -109,7 +109,7 @@ export function HistoryPage() {
   const stat = (label: string, point: HistoryPoint | null, testId: string) => (
     <div className="stat-box" data-testid={testId}>
       <span className="result-label">{label}</span>
-      <Price value={point?.unitPrice ?? null} unit={unit} />
+      <Price value={point?.unitPrice ?? null} unit={unit} unitAmount={product?.unitAmount} />
       <span className="muted small">{point ? `${formatShortDate(point.record.date)} ${storeName(stores, point.record.storeId)}` : '—'}</span>
     </div>
   );

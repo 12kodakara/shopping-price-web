@@ -2669,3 +2669,14 @@ textarea {
   color: var(--muted);
   border-color: var(--line);
 }
+
+/* ---------- 第21回: 基準数量が2以上のときの参考単価 ---------- */
+
+/* 「1袋あたり約83.08円」。金額のすぐ下に小さく添える（横に広げない） */
+.per-unit-note {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}

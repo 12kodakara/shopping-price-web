@@ -100,7 +100,7 @@ export function ProductsPage() {
         </div>
         <div>
           <dt>目安単価</dt>
-          <dd><Price value={p.targetUnitPrice} unit={p.unit} /></dd>
+          <dd><Price value={p.targetUnitPrice} unit={p.unit} unitAmount={p.unitAmount} /></dd>
         </div>
       </dl>
       <Link to={`/history?product=${p.id}`} className="text-link small">価格履歴（{countOf(p.id)}件）</Link>
@@ -193,8 +193,8 @@ export function ProductsPage() {
                         </td>
                         <td className="muted small">{p.category}</td>
                         <td>{p.unitAmount}{p.unit}あたり</td>
-                        <td className="num"><Price value={p.targetUnitPrice} unit={p.unit} size="sm" /></td>
-                        <td className="num"><Price value={s?.cheapest ?? null} unit={p.unit} size="sm" /></td>
+                        <td className="num"><Price value={p.targetUnitPrice} unit={p.unit} unitAmount={p.unitAmount} size="sm" /></td>
+                        <td className="num"><Price value={s?.cheapest ?? null} unit={p.unit} unitAmount={p.unitAmount} size="sm" /></td>
                         <td>{s?.lastDate ?? <span className="muted">—</span>}</td>
                         <td>
                           <div className="row-actions">

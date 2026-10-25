@@ -40,8 +40,8 @@ export function ComparePage() {
                   </td>
                   <td>{r.product.unitAmount}{r.product.unit}あたり</td>
                   <td>{r.cheapest ? <>{storeName(stores, r.cheapest.storeId)} <Badge kind="best">最安</Badge></> : '—'}</td>
-                  <td className="num"><Price value={r.cheapest?.unitPrice ?? null} /></td>
-                  <td className="num"><Price value={r.product.targetUnitPrice} size="sm" /></td>
+                  <td className="num"><Price value={r.cheapest?.unitPrice ?? null} unit={r.product.unit} unitAmount={r.product.unitAmount} /></td>
+                  <td className="num"><Price value={r.product.targetUnitPrice} unit={r.product.unit} unitAmount={r.product.unitAmount} size="sm" /></td>
                   <td><DiffBadge diff={r.targetDiff} hasTarget={r.product.targetUnitPrice !== null} /></td>
                   <td className="num">{r.storePrices.length}</td>
                 </tr>
@@ -63,11 +63,11 @@ export function ComparePage() {
               <div className="compare-line">
                 <div>
                   <span className="result-label">最安単価（{r.product.unit}）</span>
-                  <Price value={r.cheapest?.unitPrice ?? null} size="lg" />
+                  <Price value={r.cheapest?.unitPrice ?? null} unit={r.product.unit} unitAmount={r.product.unitAmount} size="lg" />
                 </div>
                 <div className="compare-side">
                   <span className="result-label">目安</span>
-                  <Price value={r.product.targetUnitPrice} size="sm" />
+                  <Price value={r.product.targetUnitPrice} unit={r.product.unit} unitAmount={r.product.unitAmount} size="sm" />
                 </div>
               </div>
               <div className="chips">
@@ -81,7 +81,7 @@ export function ComparePage() {
                     {r.storePrices.map((sp) => (
                       <li key={sp.storeId}>
                         <span>{storeName(stores, sp.storeId)}</span>
-                        <Price value={sp.unitPrice} size="sm" />
+                        <Price value={sp.unitPrice} unit={r.product.unit} unitAmount={r.product.unitAmount} size="sm" />
                       </li>
                     ))}
                   </ul>

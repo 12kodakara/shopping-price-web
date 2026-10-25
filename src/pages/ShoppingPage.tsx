@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { Badge, DiffBadge, PageHeader, Price, useNotice } from '../components/ui';
+import { Badge, DiffBadge, PageHeader, PerUnitNote, Price, useNotice } from '../components/ui';
 import { repository } from '../data/repository';
 import type { ProductId } from '../data/types';
 import { useAppData } from '../data/useAppData';
@@ -256,8 +256,14 @@ export function ShoppingPage() {
                       <td>{r.product.name}</td>
                       <td className="muted small">{r.product.category}</td>
                       <td>{r.cheapest ? storeName(stores, r.cheapest.storeId) : '—'}</td>
-                      <td className="num"><Price value={r.cheapest?.unitPrice ?? null} unit={r.product.unit} size="sm" /></td>
-                      <td className="num"><Price value={r.product.targetUnitPrice} unit={r.product.unit} size="sm" /></td>
+                      <td className="num">
+                        <Price value={r.cheapest?.unitPrice ?? null} unit={r.product.unit} unitAmount={r.product.unitAmount} size="sm" />
+                        <PerUnitNote value={r.cheapest?.unitPrice ?? null} unit={r.product.unit} unitAmount={r.product.unitAmount} />
+                      </td>
+                      <td className="num">
+                        <Price value={r.product.targetUnitPrice} unit={r.product.unit} unitAmount={r.product.unitAmount} size="sm" />
+                        <PerUnitNote value={r.product.targetUnitPrice} unit={r.product.unit} unitAmount={r.product.unitAmount} />
+                      </td>
                       <td className="num"><DiffBadge diff={r.targetDiff} /></td>
                       <td>{isPastLowest(r) ? <Badge kind="best">過去最安</Badge> : <span className="muted">—</span>}</td>
                       <td>
@@ -287,11 +293,17 @@ export function ShoppingPage() {
                     </div>
                     <div>
                       <dt>最安単価</dt>
-                      <dd><Price value={r.cheapest?.unitPrice ?? null} unit={r.product.unit} /></dd>
+                      <dd>
+                        <Price value={r.cheapest?.unitPrice ?? null} unit={r.product.unit} unitAmount={r.product.unitAmount} />
+                        <PerUnitNote value={r.cheapest?.unitPrice ?? null} unit={r.product.unit} unitAmount={r.product.unitAmount} />
+                      </dd>
                     </div>
                     <div>
                       <dt>目安単価</dt>
-                      <dd><Price value={r.product.targetUnitPrice} unit={r.product.unit} size="sm" /></dd>
+                      <dd>
+                        <Price value={r.product.targetUnitPrice} unit={r.product.unit} unitAmount={r.product.unitAmount} size="sm" />
+                        <PerUnitNote value={r.product.targetUnitPrice} unit={r.product.unit} unitAmount={r.product.unitAmount} />
+                      </dd>
                     </div>
                   </dl>
                   <div className="chips">

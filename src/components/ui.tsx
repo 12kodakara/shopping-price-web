@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { formatYen } from '../lib/price';
+import { formatYen, perUnitPrice, unitPriceLabel } from '../lib/price';
 
 export function PageHeader({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
@@ -13,15 +13,39 @@ export function PageHeader({ title, description, action }: { title: string; desc
   );
 }
 
-/** 価格表示（数字を大きく、単位を小さく） */
-export function Price({ value, unit, size = 'md' }: { value: number | null; unit?: string; size?: 'sm' | 'md' | 'lg' }) {
+/**
+ * 価格表示（数字を大きく、単位を小さく）。
+ * 基準数量（unitAmount）が2以上のときは「997円/12袋」と出す。
+ * 「997円/袋」と出すと1袋の値段と取り違えるため。
+ */
+export function Price({
+  value,
+  unit,
+  unitAmount = 1,
+  size = 'md',
+}: {
+  value: number | null;
+  unit?: string;
+  unitAmount?: number;
+  size?: 'sm' | 'md' | 'lg';
+}) {
   if (value === null) return <span className="price price-empty">—</span>;
   return (
     <span className={`price price-${size}`}>
       <span className="price-num">{formatYen(value)}</span>
-      <span className="price-unit">円{unit ? `/${unit}` : ''}</span>
+      <span className="price-unit">{unitPriceLabel(unit, unitAmount)}</span>
     </span>
   );
+}
+
+/**
+ * 参考の「1単位あたり」の金額（例: 1袋あたり約83.08円）。
+ * 基準数量が1のときや金額が無いときは何も出さない。
+ */
+export function PerUnitNote({ value, unit, unitAmount }: { value: number | null; unit?: string; unitAmount?: number }) {
+  const per = perUnitPrice(value, unitAmount);
+  if (per === null || !unit) return null;
+  return <span className="per-unit-note">1{unit}あたり約{formatYen(per)}円</span>;
 }
 
 /** 目安との差（マイナス＝安い）。hasTarget=false なら「目安未設定」、差が出せなければ「価格未登録」 */

@@ -280,6 +280,24 @@ export function formatYen(value: number): string {
   return yenFormat.format(value);
 }
 
+/**
+ * 単価の単位の書き方。基準数量が1なら「円/本」、2以上なら「円/12袋」。
+ * 基準数量が2以上のときに「円/袋」と出すと、1袋の値段と取り違えてしまうため。
+ */
+export function unitPriceLabel(unit: string | undefined, unitAmount = 1): string {
+  if (!unit) return '円';
+  return unitAmount === 1 ? `円/${unit}` : `円/${formatYen(unitAmount)}${unit}`;
+}
+
+/**
+ * 参考として出す「1単位あたり」の金額。基準数量が1なら不要（null）。
+ * 例: 12袋あたり997円 → 1袋あたり 83.08円
+ */
+export function perUnitPrice(unitPrice: number | null, unitAmount = 1): number | null {
+  if (unitPrice === null || !(unitAmount > 1)) return null;
+  return Math.round((unitPrice / unitAmount) * 100) / 100;
+}
+
 /** 例: 2026-09-22 → "9/22" */
 export function formatShortDate(date: string): string {
   const [, m, d] = date.split('-');

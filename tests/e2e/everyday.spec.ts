@@ -894,3 +894,88 @@ test.describe('買い物候補の並び替え（PCには専用UIを出さない�
     await expect(page.getByRole('columnheader', { name: /最安単価/ })).toHaveAttribute('aria-sort', 'ascending');
   });
 });
+
+// 第21回: 基準数量が2以上の商品で、単価の意味が分かるようにする
+test.describe('基準数量が2以上のときの単価表示', () => {
+  /** 12袋入りの商品を1件だけ足し、12袋で997円の価格を登録する（このテストのブラウザの中だけ） */
+  async function setupBulkProduct(page: import('@playwright/test').Page) {
+    await page.goto('/products');
+    await page.getByRole('button', { name: '＋ 商品登録' }).click();
+    const form = page.getByRole('form', { name: '商品登録' });
+    await form.getByLabel('カテゴリ').fill('菓子');
+    await form.getByLabel('品目').fill('じゃがビー');
+    await form.getByLabel('基準数量').fill('12');
+    await form.getByLabel('単位').fill('袋');
+    await form.getByLabel('目安単価（円）').fill('1798');
+    await form.getByRole('button', { name: '登録する' }).click();
+    await expect(page.getByRole('status')).toContainText('を登録しました');
+
+    await page.goto('/prices/new');
+    await choose(page, 'product', 'P006');
+    await choose(page, 'store', 'S001');
+    await page.locator('#quantity').fill('12');
+    await page.locator('#price').fill('997');
+    await page.getByRole('button', { name: '登録する' }).click();
+    await expect(page.getByRole('status')).toContainText('価格を登録しました');
+  }
+
+  test('★価格登録では「997円/12袋」と出る（「円/袋」にしない）', async ({ page }) => {
+    await setupBulkProduct(page);
+    await page.goto('/prices/new');
+    await choose(page, 'product', 'P006');
+    await choose(page, 'store', 'S001');
+    await page.locator('#quantity').fill('12');
+    await page.locator('#price').fill('997');
+
+    const result = page.getByTestId('price-result');
+    await expect(result).toContainText('12袋あたり');
+    await expect(result).toContainText('997');
+    await expect(result).toContainText('円/12袋');
+  });
+
+  test('★商品一覧でも「円/12袋」で表示される', async ({ page, isMobile }) => {
+    await setupBulkProduct(page);
+    await page.goto('/products');
+    const row = page.getByTestId('product-P006');
+    await expect(row).toContainText('円/12袋');
+    await expect(row).toContainText('1,798円/12袋'); // 目安単価（3桁区切り）
+    // 最安単価はPCの一覧表にだけ出る列（スマホのカードには元から無い）
+    if (!isMobile) await expect(row).toContainText('997');
+  });
+
+  test('★買い物候補では参考の「1袋あたり約83.08円」も出る', async ({ page }) => {
+    await setupBulkProduct(page);
+    await page.goto('/shopping');
+    const card = page.getByTestId('candidate-P006');
+    await expect(card).toContainText('円/12袋');
+    await expect(card).toContainText('1袋あたり約83.08円'); // 最安単価の参考
+    await expect(card).toContainText('1袋あたり約149.83円'); // 目安単価の参考
+  });
+
+  test('★価格比較・価格履歴でも単位の書き方がそろっている', async ({ page }) => {
+    await setupBulkProduct(page);
+    await page.goto('/compare');
+    await expect(page.getByRole('main')).toContainText('円/12袋');
+
+    await page.goto('/history?product=P006');
+    await expect(page.getByRole('main')).toContainText('12袋あたりの単価で比較');
+    await expect(page.getByRole('main')).toContainText('円/12袋');
+  });
+
+  test('基準数量が1の商品は、これまでどおり「円/本」で参考単価も出ない', async ({ page }) => {
+    await page.goto('/shopping');
+    const card = page.getByTestId('candidate-P005');
+    await expect(card).toContainText('円/本');
+    await expect(card).not.toContainText('円/1本');
+    await expect(card).not.toContainText('あたり約');
+  });
+
+  test('スマホでも表示が崩れない（横スクロールなし）', async ({ page }) => {
+    await setupBulkProduct(page);
+    for (const path of ['/shopping', '/products', '/prices', '/history?product=P006']) {
+      await page.goto(path);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, path).toBeLessThanOrEqual(1);
+    }
+  });
+});
