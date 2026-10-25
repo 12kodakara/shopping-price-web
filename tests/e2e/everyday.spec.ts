@@ -979,3 +979,46 @@ test.describe('基準数量が2以上のときの単価表示', () => {
     }
   });
 });
+
+// Yahoo!ショッピングAPI（JANコード検索）利用に伴うクレジット表示。公式ガイドラインで必須
+test.describe('Yahoo! のクレジット表示', () => {
+  test('★どの画面でも一番下に、指定どおりのリンクが出る', async ({ page }) => {
+    for (const path of ['/', '/products', '/shopping', '/settings']) {
+      await page.goto(path);
+      const credit = page.getByTestId('yahoo-attribution');
+      await expect(credit, path).toBeVisible();
+      const link = credit.getByRole('link', { name: 'Webサービス by Yahoo! JAPAN' });
+      await expect(link, path).toHaveAttribute('href', 'https://developer.yahoo.co.jp/sitemap/');
+    }
+  });
+
+  test('★アプリの一番下にあり、最も目立つ要素にはしない', async ({ page }) => {
+    await page.goto('/products');
+    const credit = page.getByTestId('yahoo-attribution');
+    const main = page.getByRole('main');
+    const creditBox = (await credit.boundingBox())!;
+    const mainBox = (await main.boundingBox())!;
+    // 本文より下にある
+    expect(creditBox.y).toBeGreaterThan(mainBox.y);
+    // 文字は本文と同じくらいの大きさ（極端に小さくしていない）
+    const size = await credit.getByRole('link').evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    expect(size).toBeGreaterThanOrEqual(14);
+  });
+
+  test('PC・スマホとも表示が崩れない（横スクロールなし・下部ナビに隠れない）', async ({ page, isMobile }) => {
+    await page.goto('/products');
+    const credit = page.getByTestId('yahoo-attribution');
+    await credit.scrollIntoViewIfNeeded();
+    await expect(credit).toBeInViewport();
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+
+    if (isMobile) {
+      // 下部の固定ナビと重ならない
+      const creditBox = (await credit.boundingBox())!;
+      const navBox = (await page.getByTestId('bottom-nav').boundingBox())!;
+      expect(creditBox.y + creditBox.height).toBeLessThanOrEqual(navBox.y + 1);
+    }
+  });
+});

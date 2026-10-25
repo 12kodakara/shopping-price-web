@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Icon } from '../components/Icon';
 import { UpdateNotice } from '../components/UpdateNotice';
+import { YahooAttribution } from '../components/YahooAttribution';
 import { DataGate, PageErrorBoundary } from './DataGate';
 import { bottomNavPaths, navItems, settingsItem } from './navItems';
 
@@ -109,6 +110,8 @@ export function AppLayout() {
             <Outlet />
           </PageErrorBoundary>
         </DataGate>
+        {/* Yahoo!ショッピングAPI（JANコード検索）利用に伴うクレジット表示。ガイドラインに従いアプリ下部へ置く */}
+        <YahooAttribution />
       </main>
 
       {/* スマホ: 下部固定ナビ */}
