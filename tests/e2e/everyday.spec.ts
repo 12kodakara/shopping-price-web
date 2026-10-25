@@ -970,7 +970,7 @@ test.describe('基準数量が2以上のときの単価表示', () => {
     await expect(card).not.toContainText('あたり約');
   });
 
-  test('スマホでも表示が崩れない（横スクロールなし）', async ({ page }) => {
+  test('PC・スマホとも表示が崩れない（横スクロールなし）', async ({ page }) => {
     await setupBulkProduct(page);
     for (const path of ['/shopping', '/products', '/prices', '/history?product=P006']) {
       await page.goto(path);
