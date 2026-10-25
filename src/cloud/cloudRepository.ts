@@ -12,6 +12,7 @@ import {
   countsOf,
   fromRows,
   toRows,
+  withoutJan,
   type DataCounts,
   type PriceRecordRow,
   type ProductRow,
@@ -217,12 +218,43 @@ async function getCloudDataInner(): Promise<CloudResult<AppData>> {
   return { ok: true, value: loaded.data };
 }
 
+/** クラウドへ保存できたときの結果 */
+export interface UploadResult {
+  counts: DataCounts;
+  /**
+   * JANコードもクラウドへ保存できたか。
+   * 列を追加する SQL を実行するまではクラウド側に JAN の列が無いので、
+   * その間は JANコードだけ送らずに保存し、ここを false で返す（第22回）。
+   */
+  janSaved: boolean;
+}
+
 /**
  * この端末のデータでクラウドを置き換える。
  * 送る前に検証し、送信中に失敗しても端末のデータには一切触れない。
  */
-export async function replaceCloudData(data: AppData): Promise<CloudResult<DataCounts>> {
+export async function replaceCloudData(data: AppData): Promise<CloudResult<UploadResult>> {
   return guard('クラウドへ保存できませんでした', () => replaceCloudDataInner(data));
+}
+
+/** 列が無いことを示すエラーかどうか（通信の失敗などと取り違えないよう、形をしぼって見る） */
+function isMissingColumn(error: PostgrestLikeError | null): boolean {
+  return error?.code === '42703' || /column .*does not exist|could not find the '.*' column/i.test(error?.message ?? '');
+}
+
+/**
+ * クラウドの products に JAN の列があるかを調べる。
+ * supabase/migrations/20261025000001_add_product_jan.sql を実行するまでは無く、
+ * 無いまま JAN を送ると保存そのものが失敗するため、送る前に確かめる。
+ * 列の有無が分からないとき（通信の失敗など）は「ある」として扱い、保存の失敗はいつもの手順で知らせる。
+ */
+async function hasJanColumn(client: Client, userId: string): Promise<boolean> {
+  try {
+    const { error } = await client.from('products').select('jan').eq('user_id', userId).limit(1).abortSignal(AbortSignal.timeout(READ_TIMEOUT_MS));
+    return !isMissingColumn(error);
+  } catch {
+    return true;
+  }
 }
 
 /** 置き換えの対象（user_settings は最後に別で保存する） */
@@ -265,7 +297,7 @@ async function readLastSyncedAt(client: Client, userId: string): Promise<string 
   return (data?.[0] as { last_synced_at?: string | null } | undefined)?.last_synced_at ?? null;
 }
 
-async function replaceCloudDataInner(data: AppData): Promise<CloudResult<DataCounts>> {
+async function replaceCloudDataInner(data: AppData): Promise<CloudResult<UploadResult>> {
   const checked = loadAppData(data);
   if (!checked.ok) return { ok: false, error: `この端末のデータを確認できませんでした（${checked.reason}）` };
 
@@ -285,6 +317,10 @@ async function replaceCloudDataInner(data: AppData): Promise<CloudResult<DataCou
   if (!session.ok) return session;
   const { client, userId } = session.value;
   const rows = toRows(userId, checked.data);
+
+  // クラウド側に JAN の列が無いうちは、JANコードを外して保存する（ほかの項目はこれまでどおり保存できる）
+  const janSaved = await hasJanColumn(client, userId);
+  const productRows = janSaved ? rows.products : withoutJan(rows.products);
 
   // 第16回: 置き換える前に、いまのクラウドの内容を控えておく。
   // 途中で失敗したときに書き戻し、「一部の表だけ新しい・一部は空」という中途半端な状態を残さないため。
@@ -321,7 +357,7 @@ async function replaceCloudDataInner(data: AppData): Promise<CloudResult<DataCou
   }
 
   const failure = await writeAllTables(client, userId, {
-    products: rows.products,
+    products: productRows,
     stores: rows.stores,
     price_records: rows.priceRecords,
     shopping_items: rows.shoppingItems,
@@ -351,5 +387,5 @@ async function replaceCloudDataInner(data: AppData): Promise<CloudResult<DataCou
     };
   }
 
-  return { ok: true, value: countsOf(checked.data) };
+  return { ok: true, value: { counts: countsOf(checked.data), janSaved } };
 }

@@ -41,6 +41,15 @@ export function matchesStatus(item: { archived?: boolean }, status: StatusFilter
   return status === 'archived' ? Boolean(item.archived) : !item.archived;
 }
 
+/**
+ * 同じJANコードが登録されている商品を探す（自分自身は除く）。
+ * 第22回：重複は禁止せず、画面で知らせて利用者に選んでもらうために使う。
+ */
+export function productsWithSameJan<T extends { id: string; jan?: string }>(products: T[], jan: string | undefined, selfId?: string): T[] {
+  if (!jan) return [];
+  return products.filter((p) => p.jan === jan && p.id !== selfId);
+}
+
 /** 商品の検索対象: 品目・カテゴリ・メーカー・メモ・商品ID */
 export function productMatches(p: Product, query: string): boolean {
   return matchesQuery(query, [p.name, p.category, p.maker, p.memo, p.id]);

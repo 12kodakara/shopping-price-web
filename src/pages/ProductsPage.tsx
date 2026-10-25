@@ -1,13 +1,14 @@
 import { useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ArchiveControls } from '../components/ArchiveControls';
+import { JanSearch } from '../components/JanSearch';
 import { FilterBar, FilterSummary, NoMatch, Pager, scrollToListTop, SearchField, StatusToggle } from '../components/ListFilter';
 import { Badge, errorProps, FieldError, PageHeader, Price, useNotice } from '../components/ui';
 import { repository, type Result } from '../data/repository';
 import type { PriceRecord, Product, ProductId, Store } from '../data/types';
 import { useAppData } from '../data/useAppData';
 import { buildCompareRows } from '../lib/price';
-import { productMatches } from '../lib/search';
+import { productMatches, productsWithSameJan } from '../lib/search';
 import { PAGE_SIZE } from '../lib/pagination';
 import { ariaSort, nextSortState, noSort, sortMark, sortRows, type SortState } from '../lib/tableSort';
 import { useListFilter } from '../lib/useListFilter';
@@ -16,7 +17,7 @@ import { hasErrors, validateProductForm, type ProductForm } from '../lib/validat
 
 const UNIT_SUGGESTIONS = ['本', '個', '枚', '袋', '箱', 'パック', 'kg', 'g', 'L', 'ml', 'm', 'ロール'];
 
-const emptyForm: ProductForm = { category: '', name: '', unitAmount: '1', unit: '', targetUnitPrice: '', maker: '', memo: '' };
+const emptyForm: ProductForm = { category: '', name: '', unitAmount: '1', unit: '', targetUnitPrice: '', maker: '', memo: '', jan: '' };
 
 function toForm(p: Product): ProductForm {
   return {
@@ -27,6 +28,7 @@ function toForm(p: Product): ProductForm {
     targetUnitPrice: p.targetUnitPrice === null ? '' : String(p.targetUnitPrice),
     maker: p.maker ?? '',
     memo: p.memo ?? '',
+    jan: p.jan ?? '',
   };
 }
 
@@ -125,6 +127,7 @@ export function ProductsPage() {
           <ProductEditor
             key={editing ?? ''}
             product={editingProduct}
+            products={products}
             categories={categories}
             onDone={(message) => {
               setEditing(null);
@@ -252,6 +255,7 @@ export function ProductsPage() {
 
 function ProductEditor({
   product,
+  products,
   categories,
   onDone,
   onCancel,
@@ -259,6 +263,8 @@ function ProductEditor({
   children,
 }: {
   product: Product | null;
+  /** 同じJANコードの商品がないか調べるために使う（登録は妨げず、知らせるだけ） */
+  products: Product[];
   categories: string[];
   onDone: (message: string) => void;
   onCancel: () => void;
@@ -271,12 +277,19 @@ function ProductEditor({
   const { errors, value } = validateProductForm(form);
   const shown = submitted ? errors : {};
   const set = (key: keyof ProductForm, v: string) => setForm((f) => ({ ...f, [key]: v }));
+  // 同じJANコードの商品（別の商品として登録することもあるので、禁止はせず知らせる）
+  const janTwins = productsWithSameJan(products, value.jan, product?.id);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (saving.current) return;
     setSubmitted(true);
     if (hasErrors(errors)) return;
+    // 同じJANコードの商品があるときは、間違いでないか一度だけ確かめる
+    if (janTwins.length > 0) {
+      const names = janTwins.map((p) => `${p.id} ${p.name}`).join('、');
+      if (!window.confirm(`同じJANコードの商品がすでにあります（${names}）。このまま保存しますか？`)) return;
+    }
     saving.current = true;
     const result = product ? repository.updateProduct(product.id, value) : repository.addProduct(value);
     if (!result.ok) {
@@ -315,6 +328,12 @@ function ProductEditor({
     <form className="card form-card editor-card" onSubmit={handleSubmit} noValidate aria-label={product ? '商品の編集' : '商品登録'}>
       <h2>{product ? `商品の編集（${product.id}）` : '商品登録'}</h2>
       {!product && <p className="muted small">商品IDは自動で付きます。</p>}
+      {/* JANコードで探して、商品名・メーカーを入れる（任意。ログイン中だけ使える） */}
+      <JanSearch
+        currentName={form.name}
+        currentMaker={form.maker}
+        onApply={({ name, maker, jan }) => setForm((f) => ({ ...f, name, maker: maker || f.maker, jan: jan || f.jan }))}
+      />
       {text('category', 'カテゴリ', { required: true, placeholder: '例: 飲料', list: 'category-options' })}
       {text('name', '品目', { required: true, placeholder: '例: やさしい麦茶' })}
       <div className="field-row">
@@ -324,6 +343,12 @@ function ProductEditor({
       {text('targetUnitPrice', '目安単価（円）', { placeholder: '例: 160（空欄可）', inputMode: 'decimal' })}
       {text('maker', 'メーカー', { placeholder: '例: サントリー' })}
       {text('memo', 'メモ', { placeholder: '例: 2L×6本' })}
+      {text('jan', 'JANコード', { placeholder: '例: 4902102072618' })}
+      {janTwins.length > 0 && (
+        <p className="warning-text" role="status" data-testid="jan-duplicate">
+          同じJANコードの商品があります（{janTwins.map((p) => `${p.id} ${p.name}`).join('、')}）。別の商品なら、そのまま保存できます。
+        </p>
+      )}
       <datalist id="category-options">
         {categories.map((c) => <option key={c} value={c} />)}
       </datalist>

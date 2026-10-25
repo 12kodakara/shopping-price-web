@@ -1,3 +1,4 @@
+import { normalizeJan } from '../../supabase/functions/jan-lookup/lib';
 import { isValidDate } from './date';
 
 export { isValidDate };
@@ -109,9 +110,14 @@ export interface ProductInput {
   targetUnitPrice: number | null;
   maker?: string;
   memo?: string;
+  /** JANコード（任意。8桁または13桁の数字） */
+  jan?: string;
 }
 
-export type ProductField = 'category' | 'name' | 'unitAmount' | 'unit' | 'targetUnitPrice';
+export type ProductField = 'category' | 'name' | 'unitAmount' | 'unit' | 'targetUnitPrice' | 'jan';
+
+/** JANコードのエラー文（空欄は許す） */
+export const JAN_ERROR = 'JANコードは8桁または13桁の数字で入力してください';
 
 export function productInputErrors(input: ProductInput): FieldErrors<ProductField> {
   const e: FieldErrors<ProductField> = {};
@@ -123,6 +129,8 @@ export function productInputErrors(input: ProductInput): FieldErrors<ProductFiel
   if (input.targetUnitPrice !== null && !(input.targetUnitPrice >= 0)) {
     e.targetUnitPrice = '目安単価は空欄または0以上の数を入力してください';
   }
+  // JANコードは任意。入れるなら、バーコードとして成り立つ形であること
+  if (input.jan !== undefined && normalizeJan(input.jan) === null) e.jan = JAN_ERROR;
   return e;
 }
 
@@ -134,6 +142,7 @@ export interface ProductForm {
   targetUnitPrice: string;
   maker: string;
   memo: string;
+  jan: string;
 }
 
 export function validateProductForm(form: ProductForm): { errors: FieldErrors<ProductField>; value: ProductInput } {
@@ -145,6 +154,8 @@ export function validateProductForm(form: ProductForm): { errors: FieldErrors<Pr
     targetUnitPrice: clean(form.targetUnitPrice) === '' ? null : parseNumber(form.targetUnitPrice),
     maker: optional(form.maker),
     memo: optional(form.memo),
+    // 全角数字やハイフンで入力されても、半角の数字だけにそろえて保存する
+    jan: optional(form.jan) === undefined ? undefined : (normalizeJan(form.jan) ?? clean(form.jan)),
   };
   return { errors: productInputErrors(value), value };
 }

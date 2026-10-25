@@ -93,6 +93,8 @@ function productProblem(v: unknown): string | null {
   if (!isStr(v.unit)) return '単位が正しくありません';
   if (!(v.targetUnitPrice === null || (isNum(v.targetUnitPrice) && v.targetUnitPrice >= 0))) return '目安単価が正しくありません';
   if (!isOptStr(v.maker) || !isOptStr(v.memo) || !isOptBool(v.archived)) return 'メーカー・メモ・使用停止の形式が正しくありません';
+  // JANコードは第22回で追加した任意項目。古いデータには無いので、あるときだけ形を見る
+  if (!isOptStr(v.jan)) return 'JANコードの形式が正しくありません';
   return null;
 }
 

@@ -317,6 +317,11 @@ async function signIn(page: Page) {
 
 const restCalls = (mock: Mock) => mock.calls.filter((c) => c.path.includes('/rest/v1/'));
 
+/** この端末（テスト用ブラウザ）の保存データ */
+async function saved(page: Page): Promise<{ products: { id: string; name: string; jan?: string }[] }> {
+  return JSON.parse((await page.evaluate((key) => localStorage.getItem(key), KEY)) ?? '{}');
+}
+
 /** 「内容が置き換わることを理解しました」にチェックを入れる */
 async function tickConfirm(page: Page) {
   const box = page.getByTestId('cloud-confirm');
@@ -1149,6 +1154,242 @@ test.describe('クラウドとのデータのやりとり', () => {
     // 注意は消え、最終保存日時が入る
     await expect(page.getByTestId('cloud-incomplete')).toHaveCount(0);
     await expect(page.getByTestId('cloud-updated-at')).toContainText('クラウドの最終保存：');
+  });
+
+
+  // ---------- 第22回: JANコードで商品を探す（Edge Function はモックで確認） ----------
+
+  /** Edge Function（jan-lookup）の応答を差し替える */
+  async function mockJanLookup(page: Page, reply: { status?: number; body?: unknown }) {
+    const calls: string[] = [];
+    await page.route('**/functions/v1/jan-lookup', async (route: Route) => {
+      if (route.request().method() === 'POST') calls.push(route.request().postData() ?? '');
+      const headers = {
+        'content-type': 'application/json',
+        'access-control-allow-origin': '*',
+        'access-control-allow-headers': '*',
+        'access-control-allow-methods': 'POST, OPTIONS',
+      };
+      if (route.request().method() === 'OPTIONS') {
+        await route.fulfill({ status: 204, headers, body: '' });
+        return;
+      }
+      await route.fulfill({ status: reply.status ?? 200, headers, body: JSON.stringify(reply.body ?? {}) });
+    });
+    return calls;
+  }
+
+  const candidate = (name: string, brand = 'サントリー', imageUrl: string | null = null) => ({
+    name,
+    brand,
+    imageUrl,
+    jan: '4902102072618',
+  });
+
+  test('★ログイン中はJANで検索でき、選んだ候補が入力欄に入る（保存は押すまでしない）', async ({ page }) => {
+    await mockSupabase(page);
+    const calls = await mockJanLookup(page, { body: { candidates: [candidate('やさしい麦茶 2L×6本')] } });
+    await signIn(page);
+
+    await page.goto('/products');
+    await page.getByRole('button', { name: '＋ 商品登録' }).click();
+    const form = page.getByRole('form', { name: '商品登録' });
+    await expect(form.getByTestId('jan-search')).toBeVisible();
+
+    await form.locator('#jan-code').fill('4902102072618');
+    await tap(page, 'jan-search-button');
+
+    const candidates = page.getByTestId('jan-candidates');
+    await expect(candidates).toContainText('やさしい麦茶 2L×6本');
+    await expect(candidates).toContainText('サントリー');
+    expect(JSON.parse(calls[0]).jan).toBe('4902102072618');
+
+    await candidates.getByRole('button', { name: 'この内容を使う' }).click();
+    await expect(form.getByLabel('品目')).toHaveValue('やさしい麦茶 2L×6本');
+    await expect(form.getByLabel('メーカー')).toHaveValue('サントリー');
+    await expect(page.getByTestId('jan-search-message')).toContainText('確認してから登録');
+
+    // この時点では保存されていない（登録ボタンを押すまで商品は増えない）
+    expect((await saved(page)).products).toHaveLength(5);
+  });
+
+  test('★入力済みの内容は、確認してからでないと置き換わらない', async ({ page }) => {
+    await mockSupabase(page);
+    await mockJanLookup(page, { body: { candidates: [candidate('別の商品名')] } });
+    await signIn(page);
+
+    await page.goto('/products');
+    await page.getByRole('button', { name: 'やさしい麦茶を編集' }).click();
+    const form = page.getByRole('form', { name: '商品の編集' });
+    await form.locator('#jan-code').fill('4902102072618');
+    await tap(page, 'jan-search-button');
+
+    // 「いいえ」を選ぶと、もとの内容のまま
+    page.once('dialog', (d) => void d.dismiss());
+    await page.getByTestId('jan-candidates').getByRole('button', { name: 'この内容を使う' }).click();
+    await expect(form.getByLabel('品目')).toHaveValue('やさしい麦茶');
+
+    // 「はい」を選んだときだけ置き換わる
+    page.once('dialog', (d) => void d.accept());
+    await page.getByTestId('jan-candidates').getByRole('button', { name: 'この内容を使う' }).click();
+    await expect(form.getByLabel('品目')).toHaveValue('別の商品名');
+    // 保存データはまだ変わっていない
+    expect((await saved(page)).products.find((p) => p.id === 'P005')?.name).toBe('やさしい麦茶');
+  });
+
+  test('候補が複数あるときは選べる', async ({ page }) => {
+    await mockSupabase(page);
+    await mockJanLookup(page, {
+      body: { candidates: [candidate('麦茶 2L×6本'), candidate('麦茶 2L×9本', 'サントリー', 'https://example.com/a.jpg')] },
+    });
+    await signIn(page);
+
+    await page.goto('/products');
+    await page.getByRole('button', { name: '＋ 商品登録' }).click();
+    const form = page.getByRole('form', { name: '商品登録' });
+    await form.locator('#jan-code').fill('4902102072618');
+    await tap(page, 'jan-search-button');
+
+    const items = page.getByTestId('jan-candidates').locator('> li');
+    await expect(items).toHaveCount(2);
+    await items.nth(1).getByRole('button', { name: 'この内容を使う' }).click();
+    await expect(form.getByLabel('品目')).toHaveValue('麦茶 2L×9本');
+  });
+
+  test('★見つからない・失敗しても、手で入力して登録できる', async ({ page }) => {
+    await mockSupabase(page);
+    await mockJanLookup(page, { body: { candidates: [] } });
+    await signIn(page);
+
+    await page.goto('/products');
+    await page.getByRole('button', { name: '＋ 商品登録' }).click();
+    const form = page.getByRole('form', { name: '商品登録' });
+    await form.locator('#jan-code').fill('4902102072618');
+    await tap(page, 'jan-search-button');
+    await expect(page.getByTestId('jan-search-message')).toContainText('見つかりませんでした');
+
+    // そのまま手入力で登録できる
+    await form.getByLabel('カテゴリ').fill('飲料');
+    await form.getByLabel('品目').fill('手で入れた商品');
+    await form.getByLabel('基準数量').fill('1');
+    await form.getByLabel('単位').fill('本');
+    await form.getByRole('button', { name: '登録する' }).click();
+    await expect(page.getByRole('status')).toContainText('を登録しました');
+    expect((await saved(page)).products).toHaveLength(6);
+  });
+
+  test('検索が失敗したときは理由を出す（内部の詳細は出さない）', async ({ page }) => {
+    await mockSupabase(page);
+    await mockJanLookup(page, { status: 429, body: { error: 'rate' } });
+    await signIn(page);
+
+    await page.goto('/products');
+    await page.getByRole('button', { name: '＋ 商品登録' }).click();
+    await page.locator('#jan-code').fill('4902102072618');
+    await tap(page, 'jan-search-button');
+
+    const message = page.getByTestId('jan-search-message');
+    await expect(message).toBeVisible();
+    await expect(message).not.toContainText('429');
+  });
+
+  test('★ログインしていないときは案内だけを出す（手入力はできる）', async ({ page }) => {
+    await mockSupabase(page);
+    await page.goto('/products');
+    await page.getByRole('button', { name: '＋ 商品登録' }).click();
+    await expect(page.getByTestId('jan-search-disabled')).toContainText('ログイン中だけ');
+    await expect(page.getByTestId('jan-search-button')).toHaveCount(0);
+    await expect(page.getByRole('form', { name: '商品登録' }).getByLabel('品目')).toBeVisible();
+  });
+
+  test('JAN検索の欄があっても横スクロールしない', async ({ page }) => {
+    await mockSupabase(page);
+    await signIn(page);
+    await page.goto('/products');
+    await page.getByRole('button', { name: '＋ 商品登録' }).click();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+
+
+  // ---------- 第22回: 探したJANコードを商品に保存する ----------
+
+  test('★検索して選ぶと、JANコードも入力欄に入り、登録すると保存される', async ({ page }) => {
+    await mockSupabase(page);
+    await mockJanLookup(page, { body: { candidates: [candidate('やさしい麦茶 2L×6本')] } });
+    await signIn(page);
+
+    await page.goto('/products');
+    await page.getByRole('button', { name: '＋ 商品登録' }).click();
+    const form = page.getByRole('form', { name: '商品登録' });
+    await form.locator('#jan-code').fill('4902102072618');
+    await tap(page, 'jan-search-button');
+    await page.getByTestId('jan-candidates').getByRole('button', { name: 'この内容を使う' }).click();
+
+    // 商品の保存欄にもコードが入る（この時点ではまだ保存されていない）
+    await expect(form.locator('#product-jan')).toHaveValue('4902102072618');
+    expect((await saved(page)).products.some((p) => p.jan)).toBe(false);
+
+    await form.getByLabel('カテゴリ').fill('飲料');
+    await form.getByLabel('基準数量').fill('1');
+    await form.getByLabel('単位').fill('本');
+    await form.getByRole('button', { name: '登録する' }).click();
+    await expect(page.getByRole('status')).toContainText('を登録しました');
+
+    const added = (await saved(page)).products.at(-1);
+    expect(added?.jan).toBe('4902102072618');
+  });
+
+  test('★同じJANコードの商品があるときは知らせる（確認すれば登録できる）', async ({ page }) => {
+    await mockSupabase(page);
+    await page.goto('/products');
+
+    // 1件目を登録する
+    await page.getByRole('button', { name: '＋ 商品登録' }).click();
+    const first = page.getByRole('form', { name: '商品登録' });
+    await first.getByLabel('カテゴリ').fill('飲料');
+    await first.getByLabel('品目').fill('麦茶 6本');
+    await first.getByLabel('基準数量').fill('1');
+    await first.getByLabel('単位').fill('本');
+    await first.locator('#product-jan').fill('4902102072618');
+    await expect(page.getByTestId('jan-duplicate')).toHaveCount(0);
+    await first.getByRole('button', { name: '登録する' }).click();
+    await expect(page.getByRole('status')).toContainText('を登録しました');
+
+    // 2件目に同じコードを入れると警告が出る
+    await page.getByRole('button', { name: '＋ 商品登録' }).click();
+    const second = page.getByRole('form', { name: '商品登録' });
+    await second.getByLabel('カテゴリ').fill('飲料');
+    await second.getByLabel('品目').fill('麦茶 9本');
+    await second.getByLabel('基準数量').fill('1');
+    await second.getByLabel('単位').fill('本');
+    await second.locator('#product-jan').fill('4902102072618');
+    await expect(page.getByTestId('jan-duplicate')).toContainText('麦茶 6本');
+
+    // 確認で「いいえ」を選ぶと登録しない
+    page.once('dialog', (d) => void d.dismiss());
+    await second.getByRole('button', { name: '登録する' }).click();
+    expect((await saved(page)).products.some((p) => p.name === '麦茶 9本')).toBe(false);
+
+    // 「はい」を選べば、別の商品として登録できる
+    page.once('dialog', (d) => void d.accept());
+    await second.getByRole('button', { name: '登録する' }).click();
+    await expect(page.getByRole('status')).toContainText('を登録しました');
+    expect((await saved(page)).products.filter((p) => p.jan === '4902102072618')).toHaveLength(2);
+  });
+
+  test('編集中の商品は、自分のJANコードでは警告しない', async ({ page }) => {
+    await mockSupabase(page);
+    await page.goto('/products');
+    await page.getByRole('button', { name: 'やさしい麦茶を編集' }).click();
+    const form = page.getByRole('form', { name: '商品の編集' });
+    await form.locator('#product-jan').fill('4902102072618');
+    await form.getByRole('button', { name: '更新する' }).click();
+    await expect(page.getByRole('status')).toContainText('を更新しました');
+
+    await page.getByRole('button', { name: 'やさしい麦茶を編集' }).click();
+    await expect(page.getByRole('form', { name: '商品の編集' }).locator('#product-jan')).toHaveValue('4902102072618');
+    await expect(page.getByTestId('jan-duplicate')).toHaveCount(0);
   });
 
   test('未ログインではクラウドのデータに一切アクセスしない', async ({ page }) => {

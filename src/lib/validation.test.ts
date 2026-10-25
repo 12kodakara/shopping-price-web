@@ -39,7 +39,7 @@ describe('価格登録フォーム', () => {
 });
 
 describe('商品登録フォーム', () => {
-  const ok = { category: '飲料', name: '天然水', unitAmount: '1', unit: 'L', targetUnitPrice: '', maker: '', memo: '' };
+  const ok = { category: '飲料', name: '天然水', unitAmount: '1', unit: 'L', targetUnitPrice: '', maker: '', memo: '', jan: '' };
 
   it('目安単価は空欄なら null', () => {
     expect(validateProductForm(ok)).toMatchObject({ errors: {}, value: { targetUnitPrice: null, maker: undefined } });
@@ -50,6 +50,25 @@ describe('商品登録フォーム', () => {
     const r = validateProductForm({ ...ok, category: ' ', name: '', unitAmount: '0', unit: '', targetUnitPrice: '-1' });
     expect(Object.keys(r.errors).sort()).toEqual(['category', 'name', 'targetUnitPrice', 'unit', 'unitAmount']);
     expect(validateProductForm({ ...ok, targetUnitPrice: 'abc' }).errors.targetUnitPrice).toBeDefined();
+  });
+
+  // 第22回: JANコードは任意。入れるなら 8桁か13桁の数字だけにそろえて保存する
+  it('JANコードは空欄でよく、8桁・13桁なら保存できる', () => {
+    expect(validateProductForm(ok).value.jan).toBeUndefined();
+    expect(validateProductForm({ ...ok, jan: '   ' }).value.jan).toBeUndefined();
+    expect(validateProductForm({ ...ok, jan: '4902102072618' })).toMatchObject({ errors: {}, value: { jan: '4902102072618' } });
+    expect(validateProductForm({ ...ok, jan: '49012347' }).errors).toEqual({});
+  });
+
+  it('JANコードの全角・ハイフン・空白は半角の数字にそろえる', () => {
+    expect(validateProductForm({ ...ok, jan: '４９０２１０２０７２６１８' }).value.jan).toBe('4902102072618');
+    expect(validateProductForm({ ...ok, jan: ' 4902102-072618 ' }).value.jan).toBe('4902102072618');
+  });
+
+  it('桁数や並びが正しくないJANコードは登録できない', () => {
+    for (const bad of ['12345', '490210207261', 'abcdefghijklm', '4902102072619']) {
+      expect(validateProductForm({ ...ok, jan: bad }).errors.jan).toBeDefined();
+    }
   });
 });
 

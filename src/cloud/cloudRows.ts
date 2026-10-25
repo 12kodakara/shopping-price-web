@@ -9,6 +9,8 @@ import type { AppData, PriceRecord, Product, Store } from '../data/types';
 export interface ProductRow {
   user_id: string;
   id: string;
+  /** JANコード。クラウド側に列が無い間は付けない（第22回） */
+  jan?: string | null;
   category: string;
   name: string;
   unit_amount: number;
@@ -112,6 +114,7 @@ export function toRows(userId: string, data: AppData): CloudRows {
       target_unit_price: p.targetUnitPrice,
       maker: orNull(p.maker),
       memo: orNull(p.memo),
+      jan: orNull(p.jan),
       archived: p.archived === true,
     })),
     stores: data.stores.map((s) => ({
@@ -173,6 +176,7 @@ export function fromRows(rows: {
     targetUnitPrice: r.target_unit_price === null || r.target_unit_price === undefined ? null : num(r.target_unit_price),
     ...(orUndef(r.maker) === undefined ? {} : { maker: orUndef(r.maker) }),
     ...(orUndef(r.memo) === undefined ? {} : { memo: orUndef(r.memo) }),
+    ...(orUndef(r.jan) === undefined ? {} : { jan: orUndef(r.jan) }),
     ...(r.archived ? { archived: true } : {}),
   }));
 
@@ -233,7 +237,9 @@ export function fingerprint(data: AppData): string {
   const sep = '\u0001';
   const products = data.products
     .map((x) =>
-      [x.id, x.category, x.name, x.unitAmount, x.unit, x.targetUnitPrice ?? '', x.maker ?? '', x.memo ?? '', x.archived === true].join(sep),
+      [x.id, x.category, x.name, x.unitAmount, x.unit, x.targetUnitPrice ?? '', x.maker ?? '', x.memo ?? '', x.jan ?? '', x.archived === true].join(
+        sep,
+      ),
     )
     .sort();
   const stores = data.stores.map((x) => [x.id, x.name, x.type ?? '', x.memo ?? '', x.archived === true].join(sep)).sort();
@@ -243,4 +249,12 @@ export function fingerprint(data: AppData): string {
     )
     .sort();
   return JSON.stringify([products, stores, records, [...data.shoppingList].sort(), [...data.purchased].sort()]);
+}
+
+/**
+ * クラウド側にまだ JAN の列が無いときに、JANを外した行を作る（第22回）。
+ * 列が無い状態で送ると保存そのものが失敗するため、JANだけ落として他は保存する。
+ */
+export function withoutJan(rows: ProductRow[]): ProductRow[] {
+  return rows.map(({ jan: _jan, ...rest }) => rest);
 }

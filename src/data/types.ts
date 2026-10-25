@@ -20,6 +20,11 @@ export interface Product {
   targetUnitPrice: number | null;
   maker?: string;
   memo?: string;
+  /**
+   * JANコード（8桁または13桁）。任意項目。
+   * 第22回で追加。未登録の商品も従来どおり動くよう、無い場合は項目ごと持たない。
+   */
+  jan?: string;
   /** 使用停止（論理削除）。価格履歴は残したまま、登録・比較の対象から外す */
   archived?: boolean;
 }

@@ -222,13 +222,26 @@ function CloudDataPanel() {
       setMessage({ kind: 'error', text: result.error });
       return;
     }
-    setCloud(result.value);
+    setCloud(result.value.counts);
     setCheckedAt(new Date());
     // 「クラウドの最終保存」はクラウドへ保存できたときだけ進める
     setCloudSavedAt(new Date().toISOString());
+    closePreview();
+    if (!result.value.janSaved) {
+      // JANコードだけはクラウドへ送っていないので、「同じ内容」とは言わない
+      setContentMatch('different');
+      setVerifiedFingerprint(null);
+      setMessage({
+        kind: 'success',
+        text:
+          'この端末のデータをクラウドへ保存しました（端末のデータはそのままです）。' +
+          'ただし、クラウド側にJANコードの欄がまだ無いため、JANコードは保存していません。' +
+          'supabase/README.md の手順で JANコードの列を追加すると保存されます。',
+      });
+      return;
+    }
     setContentMatch('same');
     setVerifiedFingerprint(data ? fingerprint(data) : null);
-    closePreview();
     setMessage({ kind: 'success', text: 'この端末のデータをクラウドへ保存しました（端末のデータはそのままです）' });
   }
 
